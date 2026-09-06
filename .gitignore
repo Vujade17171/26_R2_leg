@@ -1,0 +1,52 @@
+# ============================================================
+#  25_R2_leg  STM32H723 + Keil MDK-ARM (STM32CubeMX) 过滤文件
+# ============================================================
+
+# ---------- Keil MDK-ARM 编译输出 ----------
+# Keil 默认输出目录（CubeMX 生成的新工程输出到 _build）
+MDK-ARM/_build/
+MDK-ARM/Objects/
+MDK-ARM/Listings/
+
+# Keil 运行环境目录（由 Keil 自动生成）
+MDK-ARM/RTE/
+
+# 各类编译中间文件与产物（任意目录下）
+*.o
+*.d
+*.crf
+*.dep
+*.axf
+*.elf
+*.build_log.htm
+*.map
+*.lst
+*.lnp
+*.htm
+*.bak
+*.tmp
+
+# 固件烧录文件：如需要把 hex/bin 发布到仓库，请删除下面两行
+*.hex
+*.bin
+
+# Keil 用户个性化配置：窗口布局 / 断点 / 书签等，因人而异。
+# 其中 .uvoptx 仅含个人调试选项，建议忽略；.uvprojx 会正常提交
+*.uvguix.*
+*.uvoptx
+
+# ---------- STM32CubeMX 生成辅助文件 ----------
+# .mxproject 是 CubeMX 的工程辅助文件（会自动重新生成）
+.mxproject
+
+# ---------- 通用 / 编辑器 / 系统 ----------
+*.swp
+*~
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# IDE 个人配置（如使用 VS Code 则按需开启）
+# .vscode/
+# .idea/
+# *.user
