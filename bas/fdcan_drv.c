@@ -30,6 +30,7 @@ uint8_t fdcan_drv_init(FDCAN_HandleTypeDef *hfdcan)
     filter.FilterConfig = FDCAN_FILTER_TO_RXFIFO0;
     filter.FilterID1    = 0x00000000;
     filter.FilterID2    = 0x00000000;
+
     if (HAL_FDCAN_ConfigFilter(hfdcan, &filter) != HAL_OK)
     {
         return 1;
@@ -96,6 +97,7 @@ uint8_t fdcan_drv_send(FDCAN_HandleTypeDef *hfdcan,
 }
 
 /* Register an rx callback */
+//相当于注册表的作用
 void fdcan_drv_reg_rx_cb(FDCAN_HandleTypeDef *hfdcan, fdcan_rx_cb_t cb)
 {
     uint32_t i;

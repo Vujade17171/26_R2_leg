@@ -43,9 +43,13 @@ void motor_app_run(void)
     {
         s_last_tick = now;
 
-        /* position hold: target 0, velocity 0, Kp=20, Kd=1, feed-forward torque 0
-         * NOTE: motor just holds current/zero position, won't keep spinning */
+        /* slow constant-speed rotation (velocity mode):
+         *   p_des=0.0  (unused since Kp=0)
+         *   v_des=1.0 rad/s -> constant slow rotation
+         *   Kp  =0.0       -> don't hold a position, allow continuous rotation
+         *   Kd  =2.0       -> velocity damping, keeps speed stable
+         *   t_ff=0.0       -> no feed-forward */
         ak80_9_set_control(&hfdcan1, TEST_MOTOR_ID,
-                           0.0f, 0.0f, 20.0f, 1.0f, 0.0f);
+                           0.0f, 1.0f, 0.0f, 2.0f, 0.0f);
     }
 }
