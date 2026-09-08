@@ -1,0 +1,7 @@
+*** Using Compiler 'V5.06 update 5 (build 528)', folder: 'D:\keil5\ARM\ARMCC\Bin'
+Build target '25_R2_leg'
+linking...
+Program Size: Code=3824 RO-data=764 RW-data=20 ZI-data=1636  
+FromELF: creating hex file...
+"25_R2_leg\25_R2_leg.axf" - 0 Error(s), 0 Warning(s).
+Build Time Elapsed:  00:00:00
