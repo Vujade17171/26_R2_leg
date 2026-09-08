@@ -21,8 +21,8 @@ extern "C" {
 /* ============ AK80-9 MIT protocol limits ============ */
 #define AK80_9_P_MIN   (-12.5f)   /* position min rad */
 #define AK80_9_P_MAX   (12.5f)    /* position max rad */
-#define AK80_9_V_MIN   (-65.0f)   /* velocity min rad/s */
-#define AK80_9_V_MAX   (65.0f)    /* velocity max rad/s */
+#define AK80_9_V_MIN   (-50.0f)   /* velocity min rad/s */
+#define AK80_9_V_MAX   (50.0f)    /* velocity max rad/s */
 #define AK80_9_T_MIN   (-18.0f)   /* torque min Nm */
 #define AK80_9_T_MAX   (18.0f)    /* torque max Nm */
 #define AK80_9_KP_MIN  (0.0f)     /* Kp min */
