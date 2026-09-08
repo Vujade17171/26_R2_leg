@@ -46,6 +46,11 @@ uint8_t fdcan_drv_send(FDCAN_HandleTypeDef *hfdcan,
 /* Register an rx callback (multiple drivers may register on the same bus) */
 void fdcan_drv_reg_rx_cb(FDCAN_HandleTypeDef *hfdcan, fdcan_rx_cb_t cb);
 
+/* ---- debug counters (watch these in Keil to diagnose Rx path) ---- */
+extern volatile uint32_t g_fdcan_rx_irq_cnt;    /* Rx fifo callback entered (notify flag set) */
+extern volatile uint32_t g_fdcan_rx_frame_cnt;  /* frames actually read out of FIFO0 */
+extern volatile uint32_t g_fdcan_rx_dispatched; /* frames dispatched to a registered callback */
+
 #ifdef __cplusplus
 }
 #endif

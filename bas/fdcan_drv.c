@@ -18,6 +18,11 @@ typedef struct
 
 static fdcan_drv_node_t s_rx_cbs[FDCAN_DRV_MAX_RX_CB];
 
+/* debug counters (exposed for Keil debugger / diagnosis) */
+volatile uint32_t g_fdcan_rx_irq_cnt    = 0;
+volatile uint32_t g_fdcan_rx_frame_cnt  = 0;
+volatile uint32_t g_fdcan_rx_dispatched = 0;
+
 /* Init and start FDCAN */
 uint8_t fdcan_drv_init(FDCAN_HandleTypeDef *hfdcan)
 {
@@ -122,6 +127,8 @@ void HAL_FDCAN_RxFifo0Callback(FDCAN_HandleTypeDef *hfdcan, uint32_t RxFifo0ITs)
         return;
     }
 
+    g_fdcan_rx_irq_cnt++;
+
     /* Drain FIFO0 fully and dispatch to every registered driver */
     while (HAL_FDCAN_GetRxFifoFillLevel(hfdcan, FDCAN_RX_FIFO0) > 0)
     {
@@ -134,11 +141,14 @@ void HAL_FDCAN_RxFifo0Callback(FDCAN_HandleTypeDef *hfdcan, uint32_t RxFifo0ITs)
             break;
         }
 
+        g_fdcan_rx_frame_cnt++;
+
         for (i = 0; i < FDCAN_DRV_MAX_RX_CB; i++)
         {
             if (s_rx_cbs[i].used && (s_rx_cbs[i].hfdcan == hfdcan) && (s_rx_cbs[i].cb != NULL))
             {
                 s_rx_cbs[i].cb(hfdcan, &rx_header, rx_data);
+                g_fdcan_rx_dispatched++;
             }
         }
     }

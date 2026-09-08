@@ -18,9 +18,10 @@ extern FDCAN_HandleTypeDef hfdcan1;
 static uint32_t s_last_tick = 0;
 static uint8_t  s_inited = 0;
 
-/* Global debug-monitor variable.
- * In Keil debugger, add 'g_motor_mon' to the Watch window and expand it. */
-motor_monitor_t g_motor_mon = {0};
+/* Simple RX diagnostic:
+ * Watch 'g_rx_fifo_level' in Keil. If it stays 0, the feedback frame never
+ * reached the FDCAN RX FIFO0 (physical-layer issue). */
+volatile uint32_t g_rx_fifo_level = 0;
 
 void motor_app_init(void)
 {
@@ -42,20 +43,6 @@ void motor_app_run(void)
 
     if (s_inited == 0) { return; }
 
-    /* refresh feedback fields (every loop) */
-    if ((TEST_MOTOR_ID >= 1) && (TEST_MOTOR_ID <= AK80_9_MAX_NUM))
-    {
-        const ak80_9_state_t *st = &ak80_9_state[TEST_MOTOR_ID - 1];
-
-        g_motor_mon.pos        = st->pos;
-        g_motor_mon.vel        = st->vel;
-        g_motor_mon.torque     = st->torque;
-        g_motor_mon.temp       = st->temp;
-        g_motor_mon.error      = st->error;
-        g_motor_mon.online     = st->online;
-        g_motor_mon.last_rx_ms = st->last_rx_ms;
-    }
-
     /* send control command periodically */
     if ((now - s_last_tick) >= TEST_CTRL_PERIOD)
     {
@@ -70,13 +57,9 @@ void motor_app_run(void)
 
         ak80_9_set_control(&hfdcan1, TEST_MOTOR_ID,
                            cmd_pos, cmd_vel, cmd_kp, cmd_kd, cmd_tq);
-
-        /* update command/counter fields for debug */
-        g_motor_mon.tx_cnt++;
-        g_motor_mon.cmd_pos = cmd_pos;
-        g_motor_mon.cmd_vel = cmd_vel;
-        g_motor_mon.cmd_kp  = cmd_kp;
-        g_motor_mon.cmd_kd  = cmd_kd;
-        g_motor_mon.cmd_tq  = cmd_tq;
     }
+
+    /* RX diagnostic: poll FIFO0 fill level (no interrupt needed).
+     * Motor feedback is visible directly in 'ak80_9_state[0]'. */
+    g_rx_fifo_level = HAL_FDCAN_GetRxFifoFillLevel(&hfdcan1, FDCAN_RX_FIFO0);
 }
