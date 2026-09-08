@@ -12,29 +12,29 @@
   ******************************************************************************
   */
 #include "leg_task.h"
+#include "ak_motor.h"
+#include "fdcan.h"    
 
-/**
-  * @brief  实现 Leg_Task 线程
-  * @param  argument: 未使用（创建时传 NULL）
-  * @retval 无
-  */
+AK_Motor motors[2];  /* 电机句柄数组，按实际机械布局初始化 */
+
+
+/* 电机数量：供 Mycan 接收回调按 sizeof 自动计算，新增电机无需改这里 */
+const uint8_t g_ak_motor_num = (uint8_t)(sizeof(motors) / sizeof(motors[0]));
+
+
 void leg_task(void *argument)
 {
-  (void)argument;
 
-  /* USER CODE BEGIN leg_task_Init */
-  /* TODO: 任务启动前的一次性初始化，如等待 FDCAN/外设就绪等 */
 
-  /* USER CODE END leg_task_Init */
+  AK_Motor_Init(&motors[0], &hfdcan1, 1, &AK_MODEL_AK80_9);
+  AK_Motor_Enable(&motors[0]); 
+  osDelay(10);                  
 
-  /* Infinite loop */
   for (;;)
   {
-    /* USER CODE BEGIN leg_task_Loop */
-    /* TODO: 腿控主逻辑；如需固定频率控制（如 1 kHz），
-     *       可改用信号量/事件等待或 osDelay(1) 调度 */
 
-    /* USER CODE END leg_task_Loop */
+    AK_Motor_MIT(&motors[0], 0.0f, 6.28f, 0.0f, 2.0f, 0.0f);
+
     osDelay(1);
   }
 }
