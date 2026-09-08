@@ -8,6 +8,8 @@
                 "d:\\RC-2027\\robot arm\\26_R2_leg\\Drivers\\STM32H7xx_HAL_Driver\\Inc\\Legacy",
                 "d:\\RC-2027\\robot arm\\26_R2_leg\\Drivers\\CMSIS\\Device\\ST\\STM32H7xx\\Include",
                 "d:\\RC-2027\\robot arm\\26_R2_leg\\Drivers\\CMSIS\\Include",
+                "d:\\RC-2027\\robot arm\\26_R2_leg\\bas",
+                "d:\\RC-2027\\robot arm\\26_R2_leg\\user",
                 "D:\\keil5\\ARM\\ARMCC\\include",
                 "D:\\keil5\\ARM\\ARMCC\\include\\rw",
                 "d:\\RC-2027\\robot arm\\26_R2_leg\\MDK-ARM",
