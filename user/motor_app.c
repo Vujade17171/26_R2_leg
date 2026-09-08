@@ -18,6 +18,10 @@ extern FDCAN_HandleTypeDef hfdcan1;
 static uint32_t s_last_tick = 0;
 static uint8_t  s_inited = 0;
 
+/* Global debug-monitor variable.
+ * In Keil debugger, add 'g_motor_mon' to the Watch window and expand it. */
+motor_monitor_t g_motor_mon = {0};
+
 void motor_app_init(void)
 {
     /* 1. init universal FDCAN bus (configure filters and start) */
@@ -38,18 +42,41 @@ void motor_app_run(void)
 
     if (s_inited == 0) { return; }
 
+    /* refresh feedback fields (every loop) */
+    if ((TEST_MOTOR_ID >= 1) && (TEST_MOTOR_ID <= AK80_9_MAX_NUM))
+    {
+        const ak80_9_state_t *st = &ak80_9_state[TEST_MOTOR_ID - 1];
+
+        g_motor_mon.pos        = st->pos;
+        g_motor_mon.vel        = st->vel;
+        g_motor_mon.torque     = st->torque;
+        g_motor_mon.temp       = st->temp;
+        g_motor_mon.error      = st->error;
+        g_motor_mon.online     = st->online;
+        g_motor_mon.last_rx_ms = st->last_rx_ms;
+    }
+
     /* send control command periodically */
     if ((now - s_last_tick) >= TEST_CTRL_PERIOD)
     {
         s_last_tick = now;
 
-        /* slow constant-speed rotation (velocity mode):
-         *   p_des=0.0  (unused since Kp=0)
-         *   v_des=1.0 rad/s -> constant slow rotation
-         *   Kp  =0.0       -> don't hold a position, allow continuous rotation
-         *   Kd  =2.0       -> velocity damping, keeps speed stable
-         *   t_ff=0.0       -> no feed-forward */
+        /* command values: slow constant-speed rotation (velocity mode) */
+        const float cmd_pos = 0.0f;  /* unused since Kp=0 */
+        const float cmd_vel = 1.0f;  /* target speed rad/s */
+        const float cmd_kp  = 0.0f;  /* don't hold a position */
+        const float cmd_kd  = 2.0f;  /* velocity damping */
+        const float cmd_tq  = 0.0f;  /* no feed-forward */
+
         ak80_9_set_control(&hfdcan1, TEST_MOTOR_ID,
-                           0.0f, 1.0f, 0.0f, 2.0f, 0.0f);
+                           cmd_pos, cmd_vel, cmd_kp, cmd_kd, cmd_tq);
+
+        /* update command/counter fields for debug */
+        g_motor_mon.tx_cnt++;
+        g_motor_mon.cmd_pos = cmd_pos;
+        g_motor_mon.cmd_vel = cmd_vel;
+        g_motor_mon.cmd_kp  = cmd_kp;
+        g_motor_mon.cmd_kd  = cmd_kd;
+        g_motor_mon.cmd_tq  = cmd_tq;
     }
 }
