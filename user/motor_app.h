@@ -7,16 +7,14 @@
 #ifndef __MOTOR_APP_H
 #define __MOTOR_APP_H
 
-#include <stdint.h>   /* for uint32_t */
+#include <stdint.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-/* Simple RX diagnostic global.
- * Watch 'g_rx_fifo_level' in the Keil debugger Watch window.
- * If it stays 0, frames never reached the FDCAN RX FIFO0 (physical-layer issue). */
-extern volatile uint32_t g_rx_fifo_level;
+extern volatile uint32_t g_rx_fifo_level;   /* RX FIFO0 fill level diag */
+extern uint32_t          g_mit_tx_cnt;      /* total MIT control frames sent */
 
 void motor_app_init(void);
 void motor_app_run(void);

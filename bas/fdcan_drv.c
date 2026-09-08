@@ -7,7 +7,7 @@
 #include "fdcan_drv.h"
 #include <string.h>
 
-#define FDCAN_DRV_MAX_RX_CB   8   /* max registered rx callbacks */
+#define FDCAN_DRV_MAX_RX_CB   8   /* 接收回调函数数量 */
 
 typedef struct
 {
