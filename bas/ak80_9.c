@@ -20,6 +20,7 @@ static uint32_t float_to_uint(float x, float x_min, float x_max, int bits)
 }
 
 /* unsigned int -> float de-quantization */
+//前面小数转无符号整数逆过程
 static float uint_to_float(uint32_t x, float x_min, float x_max, int bits)
 {
     float span = x_max - x_min;

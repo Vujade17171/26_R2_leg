@@ -35,13 +35,13 @@ extern "C" {
 /* Motor state */
 typedef struct
 {
-    float    pos;          /* position rad */
-    float    vel;          /* velocity rad/s */
-    float    torque;       /* torque Nm */
-    int8_t   temp;         /* temperature C */
-    uint8_t  error;        /* error code */
-    uint32_t last_rx_ms;   /* last feedback time */
-    uint8_t  online;       /* online flag */
+    float    pos;          /* 位置 rad */
+    float    vel;          /* 速度 rad/s */
+    float    torque;       /* 扭矩 Nm */
+    int8_t   temp;         /* 温度 C */
+    uint8_t  error;        /* 错误代码 */
+    uint32_t last_rx_ms;   /* 最后反馈时间 */
+    uint8_t  online;       /* 在线标志 */
     uint8_t  id;           /* motor ID */
 } ak80_9_state_t;
 
