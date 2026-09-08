@@ -7,6 +7,8 @@
 #ifndef __MOTOR_APP_H
 #define __MOTOR_APP_H
 
+#include <stdint.h>   /* for int8_t, uint8_t, uint32_t */
+
 #ifdef __cplusplus
 extern "C" {
 #endif
