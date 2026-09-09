@@ -637,16 +637,6 @@
           <GroupName>bas</GroupName>
           <Files>
             <File>
-              <FileName>ak80_9.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\bas\ak80_9.c</FilePath>
-            </File>
-            <File>
-              <FileName>ak80_9.h</FileName>
-              <FileType>5</FileType>
-              <FilePath>..\bas\ak80_9.h</FilePath>
-            </File>
-            <File>
               <FileName>fdcan_drv.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\bas\fdcan_drv.c</FilePath>
