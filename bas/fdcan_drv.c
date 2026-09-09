@@ -86,11 +86,11 @@ uint8_t fdcan_drv_send(FDCAN_HandleTypeDef *hfdcan,
 
     txh.Identifier           = id;
     txh.IdType               = (id_type == FDCAN_EXTENDED_ID) ? FDCAN_EXTENDED_ID : FDCAN_STANDARD_ID;
-    txh.TxFrameType          = FDCAN_DATA_FRAME;
+    txh.TxFrameType          = FDCAN_DATA_FRAME;    //数据帧
     txh.DataLength           = (uint32_t)len;
     txh.ErrorStateIndicator  = FDCAN_ESI_ACTIVE;
-    txh.BitRateSwitch        = FDCAN_BRS_OFF;
-    txh.FDFormat             = FDCAN_CLASSIC_CAN;
+    txh.BitRateSwitch        = FDCAN_BRS_OFF;      //波特率切换，直接关闭
+    txh.FDFormat             = FDCAN_CLASSIC_CAN;  //传统 CAN2.0A/B（8 字节上限）
     txh.TxEventFifoControl   = FDCAN_NO_TX_EVENTS;
     txh.MessageMarker        = 0;
 

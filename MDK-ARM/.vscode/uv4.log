@@ -1,7 +1,22 @@
 *** Using Compiler 'V5.06 update 5 (build 528)', folder: 'D:\keil5\ARM\ARMCC\Bin'
 Build target '25_R2_leg'
+compiling motor_app.c...
+..\user\motor_app.h(26): warning:  #1-D: last line of file ends without a newline
+  #endif /* __MOTOR_APP_H */
+../bas/mit_motor.h(89): warning:  #1-D: last line of file ends without a newline
+  #endif /* __MIT_MOTOR_H */
+..\user\motor_app.c(87): warning:  #1-D: last line of file ends without a newline
+  }
+..\user\motor_app.c: 3 warnings, 0 errors
+compiling fdcan_drv.c...
+compiling mit_motor.c...
+..\bas\mit_motor.h(89): warning:  #1-D: last line of file ends without a newline
+  #endif /* __MIT_MOTOR_H */
+..\bas\mit_motor.c(182): warning:  #1-D: last line of file ends without a newline
+  }
+..\bas\mit_motor.c: 2 warnings, 0 errors
 linking...
-Program Size: Code=3824 RO-data=764 RW-data=20 ZI-data=1636  
+Program Size: Code=12376 RO-data=856 RW-data=52 ZI-data=2180  
 FromELF: creating hex file...
-"25_R2_leg\25_R2_leg.axf" - 0 Error(s), 0 Warning(s).
-Build Time Elapsed:  00:00:00
+"25_R2_leg\25_R2_leg.axf" - 0 Error(s), 5 Warning(s).
+Build Time Elapsed:  00:00:09

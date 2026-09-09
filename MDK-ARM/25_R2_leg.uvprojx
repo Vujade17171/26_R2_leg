@@ -656,6 +656,16 @@
               <FileType>5</FileType>
               <FilePath>..\bas\fdcan_drv.h</FilePath>
             </File>
+            <File>
+              <FileName>mit_motor.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\bas\mit_motor.c</FilePath>
+            </File>
+            <File>
+              <FileName>mit_motor.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\bas\mit_motor.h</FilePath>
+            </File>
           </Files>
         </Group>
         <Group>

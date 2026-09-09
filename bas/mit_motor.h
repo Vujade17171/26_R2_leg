@@ -21,6 +21,7 @@ extern "C" {
 #define MIT_MOTOR_MAX_NUM   4     /* max MIT motors supported */
 
 /* ---- one config row per motor ---- */
+//cfg配置的意思：电机配置参数
 typedef struct
 {
     uint8_t  id;             /* CAN ID == motor ID */

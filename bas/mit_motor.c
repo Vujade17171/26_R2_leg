@@ -14,6 +14,7 @@
 #include <math.h>
 
 mit_motor_state_t mit_motor_state[MIT_MOTOR_MAX_NUM] = {0};
+//当前已经添加配置的电机数量
 uint32_t          g_mit_motor_n = 0;
 
 static mit_motor_cfg_t s_cfg[MIT_MOTOR_MAX_NUM] = {0};
@@ -172,6 +173,7 @@ void mit_motor_unpack(FDCAN_HandleTypeDef *hfdcan,
 }
 
 /* Convenience: get state by ID, or NULL. */
+//电机状态查看函数
 mit_motor_state_t *mit_motor_get_state(uint8_t id)
 {
     int8_t idx = mit_motor_find(id);
