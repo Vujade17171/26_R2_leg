@@ -11,6 +11,8 @@
 robstride_state_t robstride_state[ROBSTRIDE_MAX_NUM] = {0};
 uint32_t          g_robstride_n = 0;
 
+
+
 static robstride_cfg_t s_cfg[ROBSTRIDE_MAX_NUM] = {0};
 
 /* float -> unsigned int quantization */

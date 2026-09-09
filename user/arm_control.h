@@ -1,0 +1,53 @@
+/**
+  ******************************************************************************
+  * @file    arm_control.h
+  * @brief   Robot-arm end-position control (3 motors, shared FDCAN bus)
+  ******************************************************************************
+  * Description:
+  *   - Target inputs are modified in Keil debug via volatile variables:
+  *       arm_cmd_mode = 0 -> joint space, arm_target[0..2] = (q0,q1,q2)
+  *       arm_cmd_mode = 1 -> cartesian,  arm_target[0..2] = (x,z,yaw)
+  *       arm_cmd_new  = 1 -> execute the new target.
+  *   - arm_dbg gives live feedback for the Watch window.
+  ******************************************************************************
+  */
+#ifndef __ARM_CONTROL_H
+#define __ARM_CONTROL_H
+
+#include "stm32h7xx_hal.h"
+
+#define ARM_MOTOR_NUM   3
+
+/* per-joint debug info (Watch arm_dbg in Keil) */
+typedef struct
+{
+    float   angle;    /* current joint angle rad      */
+    float   vel;      /* current joint velocity rad/s */
+    float   torque;   /* current joint torque Nm      */
+    float   target;   /* current commanded target rad */
+    uint8_t online;
+    int8_t  sign;
+} arm_joint_dbg_t;
+
+typedef struct
+{
+    arm_joint_dbg_t joint[ARM_MOTOR_NUM];  /* [0]=shoulder, [1]=elbow, [2]=wrist */
+    float x, z, yaw;                      /* current cartesian target            */
+    uint8_t mode;                         /* 0=joint, 1=cartesian                */
+    uint8_t reached;                      /* 1 = end-effector at target          */
+    int16_t last_err;                     /* 0=ok, -1=unreachable, else code     */
+} arm_dbg_t;
+
+extern arm_dbg_t arm_dbg;
+
+/* Keil-debug input variables (modify these in Watch window) */
+extern volatile uint8_t  arm_cmd_mode;    /* 0=joint  1=cartesian */
+extern volatile float    arm_target[3];   /* joint:(q0,q1,q2)  cart:(x,z,yaw) */
+extern volatile uint8_t  arm_cmd_new;     /* set 1 to run new target */
+
+void arm_init(FDCAN_HandleTypeDef *hfdcan);
+void arm_run(void);                 /* call every ~10 ms */
+void arm_set_joint(float q0, float q1, float q2);
+int  arm_goto(float x, float z, float yaw);
+
+#endif /* __ARM_CONTROL_H */

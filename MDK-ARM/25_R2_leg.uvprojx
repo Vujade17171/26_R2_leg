@@ -666,6 +666,16 @@
               <FileType>5</FileType>
               <FilePath>..\bas\mit_motor.h</FilePath>
             </File>
+            <File>
+              <FileName>robstride.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\bas\robstride.c</FilePath>
+            </File>
+            <File>
+              <FileName>robstride.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\bas\robstride.h</FilePath>
+            </File>
           </Files>
         </Group>
         <Group>
@@ -680,6 +690,36 @@
               <FileName>motor_app.h</FileName>
               <FileType>5</FileType>
               <FilePath>..\user\motor_app.h</FilePath>
+            </File>
+            <File>
+              <FileName>arm_control.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\user\arm_control.c</FilePath>
+            </File>
+            <File>
+              <FileName>arm_control.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\user\arm_control.h</FilePath>
+            </File>
+            <File>
+              <FileName>arm_kinematics.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\user\arm_kinematics.c</FilePath>
+            </File>
+            <File>
+              <FileName>arm_kinematics.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\user\arm_kinematics.h</FilePath>
+            </File>
+            <File>
+              <FileName>arm_traj.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\user\arm_traj.c</FilePath>
+            </File>
+            <File>
+              <FileName>arm_traj.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\user\arm_traj.h</FilePath>
             </File>
           </Files>
         </Group>
