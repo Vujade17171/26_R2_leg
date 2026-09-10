@@ -46,7 +46,7 @@ extern FDCAN_HandleTypeDef hfdcan1;
 
 /* ---- debug globals (watch in Keil) ---- */
 arm_dbg_t arm_dbg = {0};
-volatile uint8_t  arm_cmd_mode = 1;                       /* default cartesian */
+volatile uint8_t  arm_cmd_mode = 1;                       /* 控制模式 */
 volatile float    arm_target[3] = {0.20f, 0.30f, 0.0f};  /* x,z,yaw */
 volatile uint8_t  arm_cmd_new  = 0;
 
@@ -222,13 +222,18 @@ void arm_set_joint(float q0, float q1, float q2)
 void arm_run(void)
 {
     uint32_t now;
+	
+//本次轨迹计算出来的三个关节角，三个关节速度
     float q0, q1, q2, v0, v1, v2;
+//done=0还在运行，=1结束
     int done = 0;
+//三个关节之间的误差
     float err0, err1, err2;
 
     if (!s_inited) { return; }
 
     now = HAL_GetTick();
+		
     if (s_last_tick) { s_dt = (float)(now - s_last_tick) * 0.001f; }
     s_last_tick = now;
     if (s_dt <= 0.0f)  { s_dt = 0.01f; }

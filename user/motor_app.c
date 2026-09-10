@@ -22,5 +22,14 @@ void motor_app_init(void)
 
 void motor_app_run(void)
 {
+    static uint32_t last_run_ms = 0;
+    uint32_t now_ms = HAL_GetTick();
+
+    if ((uint32_t)(now_ms - last_run_ms) < 10U)
+    {
+        return;
+    }
+
+    last_run_ms = now_ms;
     arm_run();
 }
