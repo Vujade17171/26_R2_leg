@@ -59,7 +59,7 @@ const osThreadAttr_t defaultTask_attributes = {
 osThreadId_t Leg_TaskHandle;
 const osThreadAttr_t Leg_Task_attributes = {
   .name = "Leg_Task",
-  .stack_size = 256 * 4,
+  .stack_size = 512 * 4,
   .priority = (osPriority_t) osPriorityLow,
 };
 

@@ -254,6 +254,7 @@ void get_dynamic_feedforward_torque(float q1, float q2,
     static float last_tau_sh = 0.0f;
     static float last_tau_el = 0.0f;
     static uint32_t dwt_cnt_last = 0;   /* DWT 计数缓存，用于算实际周期 */
+    static uint8_t  first_run = 1u;     /* 首拍标记：丢弃异常大的 dt */
 
     float dt;
     float tg_sh = 0.0f, tg_el = 0.0f;
@@ -264,6 +265,8 @@ void get_dynamic_feedforward_torque(float q1, float q2,
 
     /* 变化率限制用的周期：由 DWT 实测（需先 DWT_Init） */
     dt = DWT_GetDeltaT(&dwt_cnt_last);
+    if (first_run != 0u) { first_run = 0u; dt = 0.0f; }  /* 首拍：直接取目标值作初值，不做限速 */
+    if (dt > 0.05f)      { dt = 0.05f; }                 /* 卡顿/异常大周期上限 50ms */
 
     /* 1. 空载机械臂重力补偿（电机侧力矩） */
     get_gravity_torque_motor_cfg(&grav, q1, q2, &tg_sh, &tg_el);
