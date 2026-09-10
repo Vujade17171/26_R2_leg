@@ -18,6 +18,10 @@
 #include "bsp_dwt.h"     /* DWT_GetDeltaT：实测调用周期 */
 #include "Mycan.h"       /* g_rx_frames：反馈帧计数，用于等待驱动板反馈 */
 
+/* 故障时"保持位姿"用的刚度/阻尼（比正常跟踪低，避免故障下继续大力输出） */
+#define ARM_FAULT_HOLD_KP   40.0f
+#define ARM_FAULT_HOLD_KD    1.5f
+
 AK_Motor motors[2];  /* 电机句柄数组：motors[0]=大臂(肩)，motors[1]=小臂(肘) */
 
 LegLinkParam leg_link_param = { D_L1, D_L2, D_L3 };  /* 连杆参数：大臂/小臂/腕部长度，单位 m */
@@ -95,10 +99,15 @@ void arm_control(float x, float y)
     FootPosition target;
     LegJointAngles q_des;
 
-    /* 0. 安全检查：任一电机报错 → 立即清零力矩(电机自由)并跳过本拍控制 */
+    /* 0. 安全检查：任一电机报错 → 保持当前位姿(不再跟踪目标)，等故障消失自动恢复 */
     if ((motors[0].err_code != 0u) || (motors[1].err_code != 0u)) {
-        AK_Motor_MIT(&motors[0], 0.0f, 0.0f, 0.0f, 0.0f, 0.0f);
-        AK_Motor_MIT(&motors[1], 0.0f, 0.0f, 0.0f, 0.0f, 0.0f);
+        float q1_hold = motor_to_joint_1(motors[0].pos_rad);
+        float q2_hold = motor_to_joint_2(motors[1].pos_rad);
+
+        AK_Motor_MIT(&motors[0], joint_to_motor_1(q1_hold), 0.0f,
+                     ARM_FAULT_HOLD_KP, ARM_FAULT_HOLD_KD, 0.0f);
+        AK_Motor_MIT(&motors[1], joint_to_motor_2(q2_hold), 0.0f,
+                     ARM_FAULT_HOLD_KP, ARM_FAULT_HOLD_KD, 0.0f);
         return;
     }
 

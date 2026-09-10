@@ -154,7 +154,6 @@ int8_t Kinematics_Inverse(const FootPosition *foot, LegJointAngles *q, int elbow
     if (best_cost >= 9999.0f) { return -1; }   /* 无满足限位的解 */
 
     clamp_to_joint_limit(&best_q1, &best_q2);
-    best_q1 = wrap_pi(best_q1);
 
     g_q1_prev = best_q1;   /* 记录，供下一拍连续性择优 */
     g_q2_prev = best_q2;
