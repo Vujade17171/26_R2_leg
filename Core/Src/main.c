@@ -98,6 +98,7 @@ int main(void)
   /* USER CODE BEGIN 2 */
   /* FDCAN 扩展帧过滤器 + 启动 + 接收中断（放在启动 RTOS 之前） */
   can_filter_init();
+  DWT_Init(480);   /* 参数为 CPU 频率 MHz；你的 SYSCLK = 480MHz */
   /* USER CODE END 2 */
 
   /* Init scheduler */

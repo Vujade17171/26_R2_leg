@@ -6,6 +6,7 @@
  *****************************************************************************/
 #include "kinematics.h"
 #include <math.h>
+#include "bsp_dwt.h"   /* DWT_GetDeltaT：实测调用周期，用于力矩变化率限制 */
 
 /* 连杆参数（全局，Init 时写入） */
 static LegLinkParam g_link;
@@ -22,6 +23,24 @@ static float g_q2_prev = 0.0f;
 
 #define AK_PI        3.14159265358979f
 #define AK_TWO_PI    6.28318530717959f
+
+static const grav_comp_cfg_t grav = {
+    .m_elbow = 0.500f,
+    .m_wrist = 0.450f,
+    .g = 9.81f,
+    .shoulder_gear = 7.5f,
+    .elbow_gear = 7.5f
+};
+
+static const dyn_ff_cfg_t ff = {
+    .m_link1 = 0.300f,
+    .lc_link1 = 0.175f,
+    .kd_sh = 0.12f,
+    .kd_el = 0.10f,
+    .max_torque_sh = 6.0f,
+    .max_torque_el = 5.5f,
+    .rate_limit = 50.0f,
+};
 
 /* 角度归一化到 [-PI, PI] */
 static float wrap_pi(float a)
@@ -151,10 +170,11 @@ void jacobian_rz(float q1, float q2, float* J11, float* J12, float* J21, float* 
     float s1 = sinf(q1), c1 = cosf(q1);
     float s12 = sinf(q1 + q2), c12 = cosf(q1 + q2);
 
-    *J11 = -D_L1*s1 - D_L2*s12;
-    *J12 = -D_L2*s12;
-    *J21 =  D_L1*c1 + D_L2*c12;
-    *J22 =  D_L2*c12;
+    /* 与 FK/IK/重力补偿统一使用 Kinematics_Init 写入的 g_link 长度 */
+    *J11 = -g_link.L1*s1 - g_link.L2*s12;
+    *J12 = -g_link.L2*s12;
+    *J21 =  g_link.L1*c1 + g_link.L2*c12;
+    *J22 =  g_link.L2*c12;
 }
 
 /* ================== 关节角 <-> 电机角 零点/方向换算 ================== */
@@ -227,40 +247,43 @@ static float limit_torque(float target, float last, float max_abs,
 }
 
 /* 动力学前馈力矩：重力 + 连杆自重 + 粘性阻尼，再限幅/限速平滑 */
-void get_dynamic_feedforward_torque(const dyn_ff_cfg_t *ff,
-                                    const grav_comp_cfg_t *grav,
-                                    float q1, float q2,
+void get_dynamic_feedforward_torque(float q1, float q2,
                                     float dq1, float dq2,
                                     float *tau_sh_ff, float *tau_el_ff)
 {
     static float last_tau_sh = 0.0f;
     static float last_tau_el = 0.0f;
+    static uint32_t dwt_cnt_last = 0;   /* DWT 计数缓存，用于算实际周期 */
 
+    float dt;
     float tg_sh = 0.0f, tg_el = 0.0f;
     float tv_sh, tv_el, T1_link;
     float c1;
 
-    if ((ff == 0) || (grav == 0)) { return; }
+    /* ff 与 grav 都是本文件内的常量结构体（非指针），无需判空 */
+
+    /* 变化率限制用的周期：由 DWT 实测（需先 DWT_Init） */
+    dt = DWT_GetDeltaT(&dwt_cnt_last);
 
     /* 1. 空载机械臂重力补偿（电机侧力矩） */
-    get_gravity_torque_motor_cfg(grav, q1, q2, &tg_sh, &tg_el);
+    get_gravity_torque_motor_cfg(&grav, q1, q2, &tg_sh, &tg_el);
 
     /* 2. 大臂连杆自身重力补偿（其质心近似在大臂中部） */
     c1 = cosf(q1);
-    T1_link = ff->m_link1 * grav->g * ff->lc_link1 * c1;
-    if (grav->shoulder_gear > 0.0f) {
-        tg_sh += T1_link / grav->shoulder_gear;
+    T1_link = ff.m_link1 * grav.g * ff.lc_link1 * c1;
+    if (grav.shoulder_gear > 0.0f) {
+        tg_sh += T1_link / grav.shoulder_gear;
     }
 
     /* 3. 速度粘性阻尼补偿 */
-    tv_sh = ff->kd_sh * dq1;
-    tv_el = ff->kd_el * dq2;
+    tv_sh = ff.kd_sh * dq1;
+    tv_el = ff.kd_el * dq2;
 
-    /* 4. 限幅与变化率平滑 */
+    /* 4. 限幅与变化率平滑（dt 为 DWT 实测周期） */
     last_tau_sh = limit_torque(tg_sh + tv_sh, last_tau_sh,
-                               ff->max_torque_sh, ff->rate_limit, ff->dt);
+                               ff.max_torque_sh, ff.rate_limit, dt);
     last_tau_el = limit_torque(tg_el + tv_el, last_tau_el,
-                               ff->max_torque_el, ff->rate_limit, ff->dt);
+                               ff.max_torque_el, ff.rate_limit, dt);
 
     if (tau_sh_ff != 0) { *tau_sh_ff = last_tau_sh; }
     if (tau_el_ff != 0) { *tau_el_ff = last_tau_el; }

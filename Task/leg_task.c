@@ -14,8 +14,18 @@
 #include "leg_task.h"
 #include "ak_motor.h"
 #include "fdcan.h"    
+#include "kinematics.h"  /* 腿部运动学接口：FK/IK、关节角<->电机角换算、重力补偿等 */
 
 AK_Motor motors[2];  /* 电机句柄数组，按实际机械布局初始化 */
+
+LegLinkParam leg_link_param = { D_L1, D_L2, D_L3 };  /* 连杆参数：大臂/小臂/腕部长度，单位 m */
+
+LegJointAngles motor_angles = { 0.0f, 0.0f, 0.0f }; //电机角
+
+FootPosition target_pos = { 0.0f, 0.0f }; //末端端位置x,z
+
+FootPosition FK_pos = { 0.0f, 0.0f }; //正解位置x,z
+
 
 
 /* 电机数量：供 Mycan 接收回调按 sizeof 自动计算，新增电机无需改这里 */
@@ -27,13 +37,16 @@ void leg_task(void *argument)
 
 
   AK_Motor_Init(&motors[0], &hfdcan1, 1, &AK_MODEL_AK80_9);
+  AK_Motor_Init(&motors[1], &hfdcan1, 2, &AK_MODEL_AK45_10);
   AK_Motor_Enable(&motors[0]); 
+  AK_Motor_Enable(&motors[1]); 
+  Kinematics_Init(&leg_link_param);
   osDelay(10);                  
 
   for (;;)
   {
 
-    AK_Motor_MIT(&motors[0], 0.0f, 6.28f, 0.0f, 2.0f, 0.0f);
+    
 
     osDelay(1);
   }

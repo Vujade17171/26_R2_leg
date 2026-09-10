@@ -19,7 +19,7 @@ extern "C" {
 
 #define D_L1 0.35f  // 大臂长度
 #define D_L2 0.25f  // 小臂长度
-#define D_L3 0.10f  // 腕部长度
+#define D_L3 0.00f  // 腕部长度(暂时忽略)
 
 /* 连杆长度（单位 m）：由机械设计确定，使用前在 Init 中赋值 */
 typedef struct {
@@ -49,6 +49,9 @@ void Kinematics_Forward(const LegJointAngles *q, FootPosition *foot);
 
 /* 逆解 IK：由足端位置求关节角度（elbow_up：0=一个弯向，1=另一弯向，其它=自动择优；失败返回 -1，成功返回 0） */
 int8_t Kinematics_Inverse(const FootPosition *foot, LegJointAngles *q, int elbow_up);
+
+/* 雅可比矩阵：由关节角求 J = [∂x/∂q1 ∂x/∂q2; ∂z/∂q1 ∂z/∂q2] */
+void jacobian_rz(float q1, float q2, float* J11, float* J12, float* J21, float* J22);
 
 /* ================== 关节角 <-> 电机角 零点/方向换算 ================== */
 
@@ -94,21 +97,18 @@ typedef struct {
     float max_torque_sh; /* 肩电机力矩限幅 (N·m，电机侧)   */
     float max_torque_el; /* 肘电机力矩限幅 (N·m，电机侧)   */
     float rate_limit;    /* 力矩变化率限制 (N·m/s，电机侧) */
-    float dt;            /* 调用周期 (s)，用于变化率限制   */
 } dyn_ff_cfg_t;
 
 /* 动力学前馈力矩计算：重力补偿 + 连杆自重 + 粘性阻尼，
  * 再经限幅与变化率平滑，输出电机侧前馈力矩。
+ * （重力配置 grav 为本模块内的常量结构体，不作为入参；
+ *   变化率限制用的周期由 DWT 实测，需先调用 DWT_Init()）
  * 输入说明：
- *   ff       前馈配置（质量/阻尼/限幅/周期）
- *   grav     重力补偿配置（与 get_gravity_torque_motor_cfg 共用）
  *   q1/q2    肩/肘关节角 (rad)
  *   dq1/dq2  肩/肘关节角速度 (rad/s)，用于粘性阻尼
  *   tau_sh_ff 输出：肩电机侧前馈力矩 (N·m)，可传 NULL
  *   tau_el_ff 输出：肘电机侧前馈力矩 (N·m)，可传 NULL */
-void get_dynamic_feedforward_torque(const dyn_ff_cfg_t *ff,
-                                    const grav_comp_cfg_t *grav,
-                                    float q1, float q2,
+void get_dynamic_feedforward_torque(float q1, float q2,
                                     float dq1, float dq2,
                                     float *tau_sh_ff, float *tau_el_ff);
 
