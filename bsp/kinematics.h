@@ -65,51 +65,34 @@ float joint_to_motor_2(float q2);
 float motor_to_joint_1(float m1);
 float motor_to_joint_2(float m2);
 
-/* ================== 重力补偿 ================== */
+/* ================== 重力补偿（简单杠杆原理） ==================
+ * 每个关节的重力矩 = Σ (质量 × g × 该关节到该质量质心的水平距离)
+ * 水平距离 = 各段长度 × cos(该段的绝对角度)，即力臂的水平投影。 */
 
-/* 重力补偿配置：两连杆质点质量、重力加速度、关节减速比 */
+/* 重力补偿配置：质量、质心力臂、方向、减速比 */
 typedef struct {
-    float m_elbow;       /* 肘关节处集中质量 (kg) */
-    float m_wrist;       /* 腕/足端处集中质量 (kg) */
-    float g;             /* 重力加速度 (m/s²，通常 9.81) */
-    float shoulder_gear; /* 肩关节减速比 */
-    float elbow_gear;    /* 肘关节减速比 */
-} grav_comp_cfg_t;
+    float m_arm;    /* 大臂连杆质量 (kg)                          */
+    float lc_arm;   /* 大臂质心距肩关节 (m)                       */
+    float m_elbow;  /* 肘关节等效质量 (kg)，位于 L1 末端           */
+    float m_wrist;  /* 腕点等效质量 (kg)，位于 L2 末端             */
+    float m_load;   /* 腕部负载质量 (kg)，空载=吸盘组件            */
+    float lc_load;  /* 负载质心距腕关节 (m)                       */
+    float g;        /* 重力加速度 (m/s²)                          */
+    float dir_sh;   /* 肩：关节->电机 方向 (+1/-1)                */
+    float dir_el;   /* 肘：方向 (+1/-1)                           */
+    float dir_wr;   /* 腕：方向 (+1/-1)，电机反馈角=-关节角 → -1   */
+    float gear_sh;  /* 肩补偿强度除数：1.0=输出侧口径；调大→补偿变小 */
+    float gear_el;  /* 肘补偿强度除数：同上                          */
+    float gear_wr;  /* 腕补偿强度除数：同上                          */
+} grav_cfg_t;
 
-/* 计算两连杆在重力下的肩/肘关节力矩，并折算成电机侧力矩。
- * 输入说明：
- *   cfg    重力补偿配置（质量、重力加速度、减速比）
- *   q1     肩关节角 (rad)
- *   q2     肘关节角 (rad)
- *   tau_sh 输出：肩电机侧重力补偿力矩 (N·m)，可传 NULL 表示不输出
- *   tau_el 输出：肘电机侧重力补偿力矩 (N·m)，可传 NULL 表示不输出 */
-void get_gravity_torque_motor_cfg(const grav_comp_cfg_t *cfg,
-                                  float q1, float q2,
-                                  float *tau_sh, float *tau_el);
-
-/* 动力学前馈配置（电机侧力矩前馈） */
-typedef struct {
-    float m_link1;       /* 大臂连杆质量 (kg)              */
-    float lc_link1;      /* 大臂连杆质心距肩关节 (m)       */
-    float kd_sh;         /* 肩关节粘性阻尼系数 (N·m·s/rad) */
-    float kd_el;         /* 肘关节粘性阻尼系数 (N·m·s/rad) */
-    float max_torque_sh; /* 肩电机力矩限幅 (N·m，电机侧)   */
-    float max_torque_el; /* 肘电机力矩限幅 (N·m，电机侧)   */
-    float rate_limit;    /* 力矩变化率限制 (N·m/s，电机侧) */
-} dyn_ff_cfg_t;
-
-/* 动力学前馈力矩计算：重力补偿 + 连杆自重 + 粘性阻尼，
- * 再经限幅与变化率平滑，输出电机侧前馈力矩。
- * （重力配置 grav 为本模块内的常量结构体，不作为入参；
- *   变化率限制用的周期由 DWT 实测，需先调用 DWT_Init()）
- * 输入说明：
- *   q1/q2    肩/肘关节角 (rad)
- *   dq1/dq2  肩/肘关节角速度 (rad/s)，用于粘性阻尼
- *   tau_sh_ff 输出：肩电机侧前馈力矩 (N·m)，可传 NULL
- *   tau_el_ff 输出：肘电机侧前馈力矩 (N·m)，可传 NULL */
-void get_dynamic_feedforward_torque(float q1, float q2,
-                                    float dq1, float dq2,
-                                    float *tau_sh_ff, float *tau_el_ff);
+/* 重力补偿（杠杆原理）：
+ *   q1/q2/q3  肩/肘/腕关节角 (rad)，腕关节角 = −EL05 电机反馈角
+ *   输出力矩 = dir × (Σ 质量×g×水平力臂) / gear
+ *            gear=1.0 即输出侧口径；实测偏差只需调 kinematics.c 里的 gear
+ *   tau_sh/tau_el/tau_wr 可传 NULL 表示不输出 */
+void get_gravity_comp_torque(float q1, float q2, float q3,
+                             float *tau_sh, float *tau_el, float *tau_wr);
 
 #ifdef __cplusplus
 }

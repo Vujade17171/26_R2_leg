@@ -33,7 +33,7 @@ FootPosition target_pos = { 0.1f, 0.3f }; //目标末端位置 x,z
 
 FootPosition FK_pos = { 0.0f, 0.0f }; //正解得到的当前末端位置 x,z
 
-float b,c;
+float b,c,d;   /* 调试用：b=肩前馈, c=肘前馈, d=腕(EL05)前馈 */
 
 /* 电机数量：供 Mycan 接收回调按 sizeof 自动计算，新增电机无需改这里 */
 const uint8_t g_ak_motor_num = (uint8_t)(sizeof(motors) / sizeof(motors[0]));
@@ -82,9 +82,9 @@ void leg_task(void *argument)
     {
       /* TODO: 目标点后续接轨迹规划输出；现在用 target_pos 里的常值 */
       arm_control(target_pos.x, target_pos.z);
-      EL05_MotionControl(&el05_motors[0], 0.0f, 0.0f,0.0f,0.0f, 0.0f);
       tick += 1u;              /* 1 tick = 1ms（configTICK_RATE_HZ = 1000） */
       osDelayUntil(tick);      /* 固定 1kHz 节拍，避免 osDelay(1) 的周期抖动 */
+			EL05_MotionControl(&el05_motors[0], 0.0f, 0.0f,0.0f,0.0f, 0.0f);
     }
   }
 }
@@ -97,13 +97,8 @@ void leg_task(void *argument)
  * ==========================================================================*/
 void arm_control(float x, float y)
 {
-    static uint32_t dwt_cnt_last = 0;                      /* DWT 计数缓存 */
-    static LegJointAngles q_last = { 0.0f, 0.0f, 0.0f };   /* 上一拍关节角 */
-    static uint8_t first_run = 1u;
-
-    float dt;
-    float dq1 = 0.0f, dq2 = 0.0f;         /* 关节角速度 rad/s */
-    float tau_sh = 0.0f, tau_el = 0.0f;   /* 前馈力矩 N·m */
+    float q3_now = 0.0f;                                  /* 第三关节(EL05)角度 */
+    float tau_sh = 0.0f, tau_el = 0.0f, tau_wr = 0.0f;    /* 重力补偿力矩 N·m */
     FootPosition target;
     LegJointAngles q_des;
 
@@ -132,31 +127,27 @@ void arm_control(float x, float y)
     /* 3. 正解：当前关节角 -> 当前末端位置 */
     Kinematics_Forward(&motor_angles, &FK_pos);
 
-    /* 4. 关节角速度（差分，周期用 DWT 实测） */
-    dt = DWT_GetDeltaT(&dwt_cnt_last);
-    if (first_run != 0u) { first_run = 0u; dt = 0.0f; }      /* 丢弃首拍异常 dt */
-    if (dt > 0.0f) {
-        dq1 = (motor_angles.q1 - q_last.q1) / dt;
-        dq2 = (motor_angles.q2 - q_last.q2) / dt;
-    }
-    q_last = motor_angles;
+    /* 4. 第三关节角：EL05 电机反馈角 = −关节角 → q3 = −pos_rad */
+    q3_now = -el05_motors[0].pos_rad;
 
     /* 5. 逆解：目标位置 -> 期望关节角（解算失败则保持当前关节角） */
     q_des = motor_angles;
     (void)Kinematics_Inverse(&target, &q_des, -1);
+
+    /* 6. 重力补偿（杠杆原理）：τ = Σ 质量 × g × 到质心的水平力臂 */
+    get_gravity_comp_torque(motor_angles.q1, motor_angles.q2, q3_now,
+                            &tau_sh, &tau_el, &tau_wr);
+    b = tau_sh;
+    c = tau_el;
+    d = tau_wr;
     
-    /* 6. 前馈力矩：重力补偿 + 大臂自重 + 粘性阻尼（内部限幅/限速平滑） */
-    get_dynamic_feedforward_torque(motor_angles.q1, motor_angles.q2,
-                                   dq1, dq2, &tau_sh, &tau_el);
-    b=tau_sh;
-    c=tau_el;
-    /* 7. 下发 MIT：期望关节角 -> 电机角；前馈力矩作为前馈项
-     *   注意：前馈输出为"电机侧"(已除减速比)，MIT 的 t 为"输出侧"，
-     *         若实测补偿偏弱/偏强，改 kinematics.c 里去掉 /gear 或此处乘回 */
-//    AK_Motor_MIT(&motors[0], joint_to_motor_1(q_des.q1), 0.0f, 15.0f, 1.5f, tau_sh);//tau_sh
-//    AK_Motor_MIT(&motors[1], joint_to_motor_2(q_des.q2), 0.0f, 15.0f, 1.2f, tau_el);//tau_el
-    AK_Motor_MIT(&motors[0], 0.0f, 0.0f, 0.0f, 0.0f, 0.0f);
-    AK_Motor_MIT(&motors[1], 0.0f, 0.0f, 0.0f, 0.0f, 0.0f);
-//    AK_Motor_MIT(&motors[0], 0.0f, 0.0f, 0.0f, 0.0f, tau_sh);//tau_sh
-//    AK_Motor_MIT(&motors[1], 0.0f, 0.0f, 0.0f, 0.0f, tau_el);//tau_el
+
+    AK_Motor_MIT(&motors[0], joint_to_motor_1(q_des.q1), 0.0f, 15.0f, 1.5f, tau_sh);
+    AK_Motor_MIT(&motors[1], joint_to_motor_2(q_des.q2), 0.0f, 15.0f, 1.2f, tau_el);
+    /* 7. 下发前馈力矩（kp=kd=0 → 纯重力补偿测试）
+     *   注意：重力补偿现为【输出侧口径】(未除减速比)，与 MIT 的 t 字段一致；
+     *         若实测补偿过强/过弱，改 kinematics.c 里的 dir 或质量参数 */
+    // AK_Motor_MIT(&motors[0], 0.0f, 0.0f, 0.0f, 0.0f, tau_sh);
+    // AK_Motor_MIT(&motors[1], 0.0f, 0.0f, 0.0f, 0.0f, tau_el);
+    EL05_MotionControl(&el05_motors[0], el05_motors[0].pos_rad, 0.0f, 0.0f, 0.0f, tau_wr);
 }
