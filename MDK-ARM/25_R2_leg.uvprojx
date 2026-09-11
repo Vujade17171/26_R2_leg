@@ -1448,6 +1448,16 @@
               <FileType>5</FileType>
               <FilePath>..\AK_Driver\ak_motor.h</FilePath>
             </File>
+            <File>
+              <FileName>EL05_motor.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\AK_Driver\EL05_motor.c</FilePath>
+            </File>
+            <File>
+              <FileName>EL05_motor.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\AK_Driver\EL05_motor.h</FilePath>
+            </File>
           </Files>
         </Group>
         <Group>

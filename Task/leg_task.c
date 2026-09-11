@@ -17,6 +17,7 @@
 #include "kinematics.h"  /* 腿部运动学接口：FK/IK、关节角<->电机角换算、重力补偿等 */
 #include "bsp_dwt.h"     /* DWT_GetDeltaT：实测调用周期 */
 #include "Mycan.h"       /* g_rx_frames：反馈帧计数，用于等待驱动板反馈 */
+#include "EL05_motor.h"  /* EL05 电机驱动（扩展帧私有协议，Mycan 分流用） */
 
 /* 故障时"保持位姿"用的刚度/阻尼（比正常跟踪低，避免故障下继续大力输出） */
 #define ARM_FAULT_HOLD_KP   40.0f
@@ -37,6 +38,10 @@ LegJointAngles b,c;
 /* 电机数量：供 Mycan 接收回调按 sizeof 自动计算，新增电机无需改这里 */
 const uint8_t g_ak_motor_num = (uint8_t)(sizeof(motors) / sizeof(motors[0]));
 
+/* EL05 电机句柄（扩展帧协议）；ID/主机ID 在 Init 时按实际设置 */
+EL05_Motor el05_motors[1];
+const uint8_t g_el05_motor_num = (uint8_t)(sizeof(el05_motors) / sizeof(el05_motors[0]));
+
 /* 机械臂控制：输入目标末端位置 x,y，内部完成 逆解→前馈/重力补偿→正解→MIT 下发 */
 void arm_control(float x, float y);
 
@@ -47,8 +52,12 @@ void leg_task(void *argument)
 
   AK_Motor_Init(&motors[0], &hfdcan1, 1, &AK_MODEL_AK80_9);   /* 大臂 */
   AK_Motor_Init(&motors[1], &hfdcan1, 2, &AK_MODEL_AK45_10);  /* 小臂 */
+  EL05_Init(&el05_motors[0], &hfdcan1, 3, 0xFF, &EL05_MODEL);   /* EL05: 电机CAN_ID=3 */
+  
   AK_Motor_Enable(&motors[0]); 
   AK_Motor_Enable(&motors[1]); 
+  //EL05_Enable(&el05_motors[0]);
+
   Kinematics_Init(&leg_link_param);
   DWT_Init(480);          /* CPU 480MHz：供 DWT_GetDeltaT 算实际周期 */
   osDelay(10);
@@ -143,8 +152,8 @@ void arm_control(float x, float y)
     /* 7. 下发 MIT：期望关节角 -> 电机角；前馈力矩作为前馈项
      *   注意：前馈输出为"电机侧"(已除减速比)，MIT 的 t 为"输出侧"，
      *         若实测补偿偏弱/偏强，改 kinematics.c 里去掉 /gear 或此处乘回 */
-    AK_Motor_MIT(&motors[0], joint_to_motor_1(q_des.q1), 0.0f, 15.0f, 1.5f, 0.0f);//tau_sh
-    AK_Motor_MIT(&motors[1], joint_to_motor_2(q_des.q2), 0.0f, 15.0f, 1.2f, 0.0f);//tau_el
+    AK_Motor_MIT(&motors[0], joint_to_motor_1(q_des.q1), 0.0f, 15.0f, 1.5f, tau_sh);//tau_sh
+    AK_Motor_MIT(&motors[1], joint_to_motor_2(q_des.q2), 0.0f, 15.0f, 1.2f, tau_el);//tau_el
 //    AK_Motor_MIT(&motors[0], 0.0f, 0.0f, 0.0f, 0.0f, 0.0f);
 //    AK_Motor_MIT(&motors[1], 0.0f, 0.0f, 0.0f, 0.0f, 0.0f);
 }
