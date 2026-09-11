@@ -5,35 +5,22 @@ HAL_StatusTypeDef a;
 AK_Handle_t g_ak80 = {0};
 AK_Handle_t g_ak45 = {0};
 
-//函数1：CAN过滤器
+//函数1：CAN过滤器（全局"全收"：三个电机共用一套）
 void can_filter_init(void)
 {
-    FDCAN_FilterTypeDef can_filter_st_AK;          //定义一个过滤器类型的结构体
-		FDCAN_FilterTypeDef can_filter_st_EL;
-    can_filter_st_AK.IdType                        = FDCAN_STANDARD_ID;//标准ID
-    can_filter_st_AK.FilterType                    = FDCAN_FILTER_MASK;//掩码模式
-    can_filter_st_AK.FilterConfig                  = FDCAN_FILTER_TO_RXFIFO0;//配置邮箱为0
-    can_filter_st_AK.FilterID1                     = 0x0000;//标识符/掩码 高32位
-    can_filter_st_AK.FilterID2                     = 0x0000;//标识符/掩码 低32位
-    can_filter_st_AK.FilterIndex                   = 0;//设置CAN过滤器的编号，这里设置为0
-    
-    HAL_FDCAN_ConfigFilter(&hfdcan1, &can_filter_st_AK);//配置can过滤器
-
-    /* 扩展帧过滤器（EL05，29 位扩展帧） */
-    can_filter_st_EL.IdType    = FDCAN_EXTENDED_ID;
-    can_filter_st_EL.FilterType = FDCAN_FILTER_MASK;
-    can_filter_st_EL.FilterConfig = FDCAN_FILTER_TO_RXFIFO0;
-    can_filter_st_EL.FilterID1 = 0x0000;
-    can_filter_st_EL.FilterID2 = 0x0000;
-    can_filter_st_EL.FilterIndex = 1;//扩展帧过滤器编号
-    HAL_FDCAN_ConfigFilter(&hfdcan1, &can_filter_st_EL);//配置扩展帧过滤器
+    /* 用全局过滤器"全收"：标准帧（AK80/AK45）和扩展帧（EL05）都直接进 RX FIFO0，
+     * 不再依赖单独的过滤器元素，最简洁也最不容易出错。 */
+    HAL_FDCAN_ConfigGlobalFilter(&hfdcan1,
+        FDCAN_ACCEPT_IN_RX_FIFO0,   /* 非匹配标准帧 → RX FIFO0 */
+        FDCAN_ACCEPT_IN_RX_FIFO0,   /* 非匹配扩展帧 → RX FIFO0 */
+        FDCAN_REJECT_REMOTE,        /* 拒收远程标准帧 */
+        FDCAN_REJECT_REMOTE);       /* 拒收远程扩展帧 */
 
     HAL_FDCAN_Start(&hfdcan1);//使能can通信
     HAL_FDCAN_ActivateNotification(&hfdcan1, FDCAN_IT_RX_FIFO0_NEW_MESSAGE, 0);//使能接收完成中断
-
-//    HAL_FDCAN_ConfigFilter(&hfdcan2, &can_filter_st);
-//    HAL_FDCAN_Start(&hfdcan2);
-//    HAL_FDCAN_ActivateNotification(&hfdcan2, FDCAN_IT_RX_FIFO0_NEW_MESSAGE, 0);
+	//    HAL_FDCAN_ConfigFilter(&hfdcan2, &can_filter_st);
+	//    HAL_FDCAN_Start(&hfdcan2);
+	//    HAL_FDCAN_ActivateNotification(&hfdcan2, FDCAN_IT_RX_FIFO0_NEW_MESSAGE, 0);
 }
 //函数2：数据发送函数AK80
 HAL_StatusTypeDef can_send_data(AK_Handle_t*ak,uint32_t cob_id, uint8_t *data, uint8_t len)
@@ -109,19 +96,25 @@ void HAL_FDCAN_RxFifo0Callback(FDCAN_HandleTypeDef *hfdcan, uint32_t RxFifo0ITs)
     FDCAN_RxHeaderTypeDef rxHeader;
     uint8_t rx_data[8];
 
-    if (HAL_FDCAN_GetRxMessage(hfdcan, FDCAN_RX_FIFO0, &rxHeader, rx_data) != HAL_OK) {
-        return;
-    }
+    /* 一次中断可能堆积多帧（三个电机都在回传），必须循环读空 FIFO。
+     * 若每次只读 1 帧，三个电机 1kHz 回传时 FIFO 会溢出丢帧，
+     * EL05 的扩展帧优先级最低、最先被丢掉，表现为"EL05 失联"。 */
+    while (HAL_FDCAN_GetRxFifoFillLevel(hfdcan, FDCAN_RX_FIFO0) > 0)
+    {
+        if (HAL_FDCAN_GetRxMessage(hfdcan, FDCAN_RX_FIFO0, &rxHeader, rx_data) != HAL_OK) {
+            break;
+        }
 
-    if (rxHeader.IdType == FDCAN_EXTENDED_ID) {
-        /* 扩展帧 → EL05 */
-        EL05_Parse_Feedback(&g_el05, rxHeader.Identifier, rx_data);
-    } else {
-        /* 标准帧 → AK 系列，按 CAN ID 分发 */
-        if (rxHeader.Identifier == g_ak80.motor_id) {
-            parse_motion_feedback(&g_ak80, rx_data);
-        } else if (rxHeader.Identifier == g_ak45.motor_id) {
-            parse_motion_feedback(&g_ak45, rx_data);
+        if (rxHeader.IdType == FDCAN_EXTENDED_ID) {
+            /* 扩展帧 → EL05 */
+            EL05_Parse_Feedback(&g_el05, rxHeader.Identifier, rx_data);
+        } else {
+            /* 标准帧 → AK 系列，按 CAN ID 分发 */
+            if (rxHeader.Identifier == g_ak80.motor_id) {
+                parse_motion_feedback(&g_ak80, rx_data);
+            } else if (rxHeader.Identifier == g_ak45.motor_id) {
+                parse_motion_feedback(&g_ak45, rx_data);
+            }
         }
     }
 }

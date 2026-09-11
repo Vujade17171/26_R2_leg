@@ -8,8 +8,8 @@ volatile control_mode_t g_ctrl_mode   = MODE_ZERO;
 /* 位置控制指令：debug 里改这四个字段 */
 pos_cmd_t g_pos_cmd = 
 {
-    .target_x_s = 0.0f,   /* 默认末端落点 x = 0 */
-    .target_z_s = 0.0f,   /* 默认末端落点 z = 0 */
+    .target_x_s = 0.22f,   /* 默认末端落点 x = 0 */
+    .target_z_s = 0.23f,   /* 默认末端落点 z = 0 */
     .target_yaw = 0.0f,   /* 0 = 保持当前末端姿态 */
     .duration   = 0.5f,   /* 默认 0.5 秒走完 */
 };
@@ -37,6 +37,7 @@ static void Motor_Init(void)
     AK_Motion_Enter(&g_ak45);
 
     /* 腕部电机 EL05：初始化 + 进入运控模式 */
+		osDelay(10);
     EL05_Motion_Init(&g_el05, &hfdcan1, EL05_ID);
     EL05_Motion_Enter(&g_el05);
 }
@@ -70,9 +71,9 @@ void Moto_Diver(void *argument)
                 /* 下发"电机角"（已含零偏换算），不是关节角 q1/q2 */
                 AK_Motion_Control(&g_ak80, leg_motion.motor1_target_angle, 0, g_kp, g_kd, 0);
                 AK_Motion_Control(&g_ak45, leg_motion.motor2_target_angle, 0, g_kp, g_kd, 0);
-
+								osDelay(1);
                 /* 暂不控制灵足05，这里仅保持当前姿态 */
-                EL05_Motion_Control(&g_el05, 0, 0.0f, g_kp, g_kd, 0.0f);
+                EL05_Motion_Control(&g_el05, leg_motion.motor3_target_angle , 0.0f, g_kp, g_kd, 0.0f);
             }
         }
         else
@@ -80,6 +81,7 @@ void Moto_Diver(void *argument)
             /* MODE_ZERO：归零（电机角直接给 0） */
             AK_Motion_Control(&g_ak80, 0, 0, g_kp, g_kd, 0);
             AK_Motion_Control(&g_ak45, 0, 0, g_kp, g_kd, 0);
+						osDelay(1);
             EL05_Motion_Control(&g_el05, 0, 0.0f, g_kp, g_kd, 0.0f);
         }
 
