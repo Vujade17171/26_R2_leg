@@ -26,6 +26,8 @@ typedef struct
     float   torque;   /* current joint torque Nm      */
     float   target;   /* current commanded target rad */
     uint8_t online;
+    uint8_t error;    /* raw motor error code; watch in Keil */
+    uint8_t pattern;  /* Lingzu EL05 mode status; MIT motors = 0 */
     int8_t  sign;
 } arm_joint_dbg_t;
 

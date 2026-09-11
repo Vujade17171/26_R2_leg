@@ -12,20 +12,24 @@
 #endif
 
 /* motor zero offsets (reference project) */
-#define OFFSET_DOWN   3.141593f    /* shoulder   */
-#define OFFSET_UP    -2.6511548f   /* elbow      */
+#define OFFSET_DOWN   3.141593f    /* 肩关节电机偏移*/
+#define OFFSET_UP    -2.6511548f   /* 肘关节电机偏移*/
 
+
+//三个关节电机限位
 arm_joint_limit_t g_arm_joint_limit =
 {
     .q_min = { -M_PI,        -M_PI*0.4f,  -M_PI*0.9f },
     .q_max = {  M_PI,         M_PI,        M_PI*0.9f  },
 };
 
+//功能：限幅函数。把 v 限制在`lo`下限～`hi`上限之间。
 static inline float clampf(float v, float lo, float hi)
 {
     return v < lo ? lo : (v > hi ? hi : v);
 }
 
+//角度卷绕函数：**把任意弧度角，映射到 [-π , +π] 区间**
 static inline float wrap_pi(float a)
 {
     while (a >  M_PI) a -= 2.0f * M_PI;
@@ -41,6 +45,8 @@ float arm_joint_to_motor_2(float q2) { return q2 - OFFSET_UP;   }
 float arm_motor_to_joint_1(float m1) { return OFFSET_DOWN - m1; }
 float arm_motor_to_joint_2(float m2) { return m2 + OFFSET_UP;   }
 
+
+//检查电机是否在限位内
 int arm_in_limit(float q, int idx)
 {
     if (idx < 0 || idx > 2) { return 0; }
@@ -48,6 +54,7 @@ int arm_in_limit(float q, int idx)
             q <= g_arm_joint_limit.q_max[idx]);
 }
 
+//检查三个关节角度是否都在限位内
 void arm_clamp_joints(float *q0, float *q1, float *q2)
 {
     if (q0) *q0 = clampf(*q0, g_arm_joint_limit.q_min[0], g_arm_joint_limit.q_max[0]);
@@ -55,6 +62,8 @@ void arm_clamp_joints(float *q0, float *q1, float *q2)
     if (q2) *q2 = clampf(*q2, g_arm_joint_limit.q_min[2], g_arm_joint_limit.q_max[2]);
 }
 
+
+//判断目标坐标 (x,z)，2R 平面臂能不能到达。
 int arm_reachable(float x, float z)
 {
     float D2 = x * x + z * z;
@@ -64,6 +73,8 @@ int arm_reachable(float x, float z)
     return 0;
 }
 
+
+//输入坐标，输出角度
 int arm_inverse(float x, float z, float yaw,
                 float *q0, float *q1, float *q2)
 {

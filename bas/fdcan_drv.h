@@ -40,7 +40,7 @@ uint8_t fdcan_drv_init(FDCAN_HandleTypeDef *hfdcan);
  * Return 0 success, non-zero fail.
  */
 uint8_t fdcan_drv_send(FDCAN_HandleTypeDef *hfdcan,
-                       uint32_t id, uint8_t id_type,
+                       uint32_t id, uint32_t id_type,
                        uint8_t *data, uint8_t len);
 
 /* Register an rx callback (multiple drivers may register on the same bus) */

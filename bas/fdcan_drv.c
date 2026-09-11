@@ -77,7 +77,7 @@ uint8_t fdcan_drv_init(FDCAN_HandleTypeDef *hfdcan)
 
 /* Send one frame */
 uint8_t fdcan_drv_send(FDCAN_HandleTypeDef *hfdcan,
-                       uint32_t id, uint8_t id_type,
+                       uint32_t id, uint32_t id_type,
                        uint8_t *data, uint8_t len)
 {
     FDCAN_TxHeaderTypeDef txh = {0};

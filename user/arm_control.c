@@ -44,6 +44,12 @@ extern FDCAN_HandleTypeDef hfdcan1;
 #define ARM_TRAJ_TIME    2.0f    /* s, default point-to-point duration */
 #define ARM_POS_TOL      0.02f   /* rad, arrival tolerance             */
 
+/* ---- startup / runtime safety ---- */
+#define ARM_STARTUP_TIMEOUT_MS   3000U
+#define ARM_EL05_ENABLE_RETRY_MS 200U
+#define ARM_FEEDBACK_TIMEOUT_MS  200U
+#define ARM_TEMP_LIMIT_C         80.0f
+
 /* ---- debug globals (watch in Keil) ---- */
 arm_dbg_t arm_dbg = {0};
 volatile uint8_t  arm_cmd_mode = 1;                       /* 控制模式 */
@@ -55,23 +61,24 @@ static uint32_t s_last_tick = 0;
 static float    s_dt        = 0.01f;
 static uint8_t  s_inited    = 0;
 static uint8_t  s_target_set = 0;   /* 0 until first target command */
+static uint8_t  s_fault     = 0;    /* 1 = safety stop latched */
 
 /* live joint state (feedback converted to joint angles) */
 static float s_cur_joint[3] = {0, 0, 0};   /* q0,wrist q1,shoulder q2,elbow */
 static float s_tgt_joint[3] = {0, 0, 0};   /* current commanded target       */
 
-/* -------- register the 3 motor configs and enable them -------- */
-static void arm_setup_motors(FDCAN_HandleTypeDef *hfdcan)
+/* -------- register the 3 motor configs (do not enable here) -------- */
+static uint8_t arm_setup_motors(FDCAN_HandleTypeDef *hfdcan)
 {
     mit_motor_cfg_t mcfg;
     robstride_cfg_t rcfg;
 
     /* 1) bus init (filters + start) */
-    fdcan_drv_init(hfdcan);
+    if (fdcan_drv_init(hfdcan) != 0U) { return 1U; }
 
     /* 2) init drivers (register rx callback) */
-    mit_motor_init(hfdcan);
-    robstride_init(hfdcan);
+    if (mit_motor_init(hfdcan) != 0U) { return 1U; }
+    if (robstride_init(hfdcan) != 0U) { return 1U; }
 
     /* 3) AK80-9  shoulder */
     mcfg.id = ARM_M1_ID;
@@ -81,7 +88,7 @@ static void arm_setup_motors(FDCAN_HandleTypeDef *hfdcan)
     mcfg.kp_min = 0.0f;  mcfg.kp_max = 500.0f;
     mcfg.kd_min = 0.0f;  mcfg.kd_max = 5.0f;
     mcfg.sign   = +1;    /* direction handled by arm_joint_to_motor_1 */
-    mit_motor_add(&mcfg);
+    if (mit_motor_add(&mcfg) < 0) { return 1U; }
 
     /* 4) AK45-10 elbow (direction handled by arm offset) */
     mcfg.id = ARM_M2_ID;
@@ -91,7 +98,7 @@ static void arm_setup_motors(FDCAN_HandleTypeDef *hfdcan)
     mcfg.kp_min = 0.0f;  mcfg.kp_max = 500.0f;
     mcfg.kd_min = 0.0f;  mcfg.kd_max = 5.0f;
     mcfg.sign   = +1;
-    mit_motor_add(&mcfg);
+    if (mit_motor_add(&mcfg) < 0) { return 1U; }
 
     /* 5) Lingzu-05 wrist (RobStride extended frame) */
     rcfg.id        = ARM_M3_ID;
@@ -101,13 +108,49 @@ static void arm_setup_motors(FDCAN_HandleTypeDef *hfdcan)
     rcfg.kp_min    = 0.0f;   rcfg.kp_max = 500.0f;
     rcfg.kd_min    = 0.0f;   rcfg.kd_max = 5.0f;
     rcfg.sign      = +1;
-    rcfg.master_id = 0x11;   /* host CAN id (reference project) */
-    robstride_add(&rcfg);
+    rcfg.master_id = 0xFFU;   /* host CAN id (reference project) */
+    if (robstride_add(&rcfg) < 0) { return 1U; }
 
-    /* 6) enable all three */
-    mit_motor_enable(hfdcan, ARM_M1_ID);
-    mit_motor_enable(hfdcan, ARM_M2_ID);
-    robstride_enable(hfdcan, ARM_M3_ID);
+    return 0U;
+}
+
+/* -------- all feedback channels must be fresh and healthy -------- */
+static uint8_t arm_feedback_ready(uint32_t now)
+{
+    mit_motor_state_t *st1 = mit_motor_get_state(ARM_M1_ID);
+    mit_motor_state_t *st2 = mit_motor_get_state(ARM_M2_ID);
+    robstride_state_t *st3 = robstride_get_state(ARM_M3_ID);
+
+    if ((st1 == NULL) || (st2 == NULL) || (st3 == NULL)) { return 0U; }
+    if ((st1->online == 0U) || (st2->online == 0U) || (st3->online == 0U)) { return 0U; }
+
+    if ((uint32_t)(now - st1->last_rx_ms) > ARM_FEEDBACK_TIMEOUT_MS) { return 0U; }
+    if ((uint32_t)(now - st2->last_rx_ms) > ARM_FEEDBACK_TIMEOUT_MS) { return 0U; }
+    if ((uint32_t)(now - st3->last_rx_ms) > ARM_FEEDBACK_TIMEOUT_MS) { return 0U; }
+
+    if ((st1->error != 0U) || (st2->error != 0U) || (st3->error != 0U)) { return 0U; }
+    if ((float)st1->temp > ARM_TEMP_LIMIT_C) { return 0U; }
+    if ((float)st2->temp > ARM_TEMP_LIMIT_C) { return 0U; }
+    if (st3->temp > ARM_TEMP_LIMIT_C) { return 0U; }
+
+    return 1U;
+}
+
+/* -------- stop all outputs and latch the fault -------- */
+static void arm_fail_safe(void)
+{
+    arm_traj_stop();
+
+    if (s_hfdcan != NULL)
+    {
+        mit_motor_disable(s_hfdcan, ARM_M1_ID);
+        mit_motor_disable(s_hfdcan, ARM_M2_ID);
+        robstride_disable(s_hfdcan, ARM_M3_ID, 0U);
+    }
+
+    s_fault  = 1U;
+    s_inited = 0U;
+    arm_dbg.last_err = -2;
 }
 
 /* -------- read feedback and convert motor angle -> joint angle -------- */
@@ -123,8 +166,10 @@ static void arm_refresh_feedback(void)
         arm_dbg.joint[0].angle  = s_cur_joint[1];
         arm_dbg.joint[0].vel    = st1->vel;
         arm_dbg.joint[0].torque = st1->torque;
-        arm_dbg.joint[0].online = st1->online;
-        arm_dbg.joint[0].sign   = +1;
+        arm_dbg.joint[0].online  = st1->online;
+        arm_dbg.joint[0].error   = st1->error;
+        arm_dbg.joint[0].pattern = 0U;
+        arm_dbg.joint[0].sign    = +1;
     }
     /* elbow (motor2 -> joint2) */
     if (st2) {
@@ -132,8 +177,10 @@ static void arm_refresh_feedback(void)
         arm_dbg.joint[1].angle  = s_cur_joint[2];
         arm_dbg.joint[1].vel    = st2->vel;
         arm_dbg.joint[1].torque = st2->torque;
-        arm_dbg.joint[1].online = st2->online;
-        arm_dbg.joint[1].sign   = +1;
+        arm_dbg.joint[1].online  = st2->online;
+        arm_dbg.joint[1].error   = st2->error;
+        arm_dbg.joint[1].pattern = 0U;
+        arm_dbg.joint[1].sign    = +1;
     }
     /* wrist (robstride -> q0 directly) */
     if (st3) {
@@ -141,8 +188,10 @@ static void arm_refresh_feedback(void)
         arm_dbg.joint[2].angle  = st3->angle;
         arm_dbg.joint[2].vel    = st3->speed;
         arm_dbg.joint[2].torque = st3->torque;
-        arm_dbg.joint[2].online = st3->online;
-        arm_dbg.joint[2].sign   = +1;
+        arm_dbg.joint[2].online  = st3->online;
+        arm_dbg.joint[2].error   = st3->error;
+        arm_dbg.joint[2].pattern = st3->pattern;
+        arm_dbg.joint[2].sign    = +1;
     }
 }
 
@@ -162,29 +211,88 @@ static void arm_send_motors(float q0, float q1, float q2,
                           ARM_KP_WRIST, ARM_KD_WRIST);
 }
 
-/* -------- public: init (HOLD at current position, no command yet) -------- */
+/* -------- zero torque/gain frame: solicit feedback without motion -------- */
+static void arm_send_safe_idle(void)
+{
+    mit_motor_set_control(s_hfdcan, ARM_M1_ID, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f);
+    mit_motor_set_control(s_hfdcan, ARM_M2_ID, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f);
+    robstride_set_control(s_hfdcan, ARM_M3_ID, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f);
+}
+
+/* -------- public: init (wait for valid feedback, then HOLD) -------- */
 void arm_init(FDCAN_HandleTypeDef *hfdcan)
 {
-    s_hfdcan = hfdcan;
-    arm_setup_motors(hfdcan);
+    uint32_t deadline;
+    uint32_t next_el05_enable;
 
-    /* do NOT force a command on power-up; instead lock at actual position */
+    s_hfdcan  = hfdcan;
+    s_inited  = 0U;
+    s_fault   = 0U;
+    s_target_set = 0U;
+    arm_cmd_new = 0U;
+    s_last_tick = HAL_GetTick();
+    arm_traj_stop();
+
+    if (arm_setup_motors(hfdcan) != 0U)
+    {
+        arm_fail_safe();
+        return;
+    }
+
+    /* Enable, but keep zero gain/torque until all three positions are known. */
+    mit_motor_enable(hfdcan, ARM_M1_ID);
+    mit_motor_enable(hfdcan, ARM_M2_ID);
+    robstride_enable(hfdcan, ARM_M3_ID);
+    next_el05_enable = HAL_GetTick() + ARM_EL05_ENABLE_RETRY_MS;
+
+    deadline = HAL_GetTick() + ARM_STARTUP_TIMEOUT_MS;
+    for (;;)
+    {
+        uint32_t now;
+
+        arm_send_safe_idle();
+        if ((int32_t)(HAL_GetTick() - next_el05_enable) >= 0)
+        {
+            robstride_enable(hfdcan, ARM_M3_ID);
+            next_el05_enable = HAL_GetTick() + ARM_EL05_ENABLE_RETRY_MS;
+        }
+        arm_refresh_feedback();
+        now = HAL_GetTick();
+
+        if (arm_feedback_ready(now) != 0U) { break; }
+        if ((int32_t)(now - deadline) >= 0)
+        {
+            arm_fail_safe();
+            return;
+        }
+        HAL_Delay(1U);
+    }
+
+    /* First valid positions become the no-motion hold targets. */
     arm_refresh_feedback();
     s_tgt_joint[0] = s_cur_joint[0];
     s_tgt_joint[1] = s_cur_joint[1];
     s_tgt_joint[2] = s_cur_joint[2];
-    s_target_set   = 0;
+    s_target_set   = 0U;
 
-    arm_dbg.mode   = arm_cmd_mode;
-    arm_dbg.reached = 0;
+    arm_dbg.mode     = arm_cmd_mode;
+    arm_dbg.reached  = 0U;
     arm_dbg.last_err = 0;
-    s_inited = 1;
+    s_fault  = 0U;
+    s_inited = 1U;
 }
 
 /* -------- public: goto cartesian target -------- */
 int arm_goto(float x, float z, float yaw)
 {
     float q0, q1, q2;
+
+    if ((s_inited == 0U) || (s_fault != 0U))
+    {
+        arm_dbg.last_err = -2;
+        return -1;
+    }
+
     if (arm_inverse(x, z, yaw, &q0, &q1, &q2) != 0)
     {
         arm_dbg.last_err = -1;   /* unreachable */
@@ -206,6 +314,12 @@ int arm_goto(float x, float z, float yaw)
 /* -------- public: goto joint target -------- */
 void arm_set_joint(float q0, float q1, float q2)
 {
+    if ((s_inited == 0U) || (s_fault != 0U))
+    {
+        arm_dbg.last_err = -2;
+        return;
+    }
+
     arm_clamp_joints(&q0, &q1, &q2);
     arm_traj_start(s_cur_joint[0], s_cur_joint[1], s_cur_joint[2],
                    q0, q1, q2, ARM_TRAJ_TIME);
@@ -229,18 +343,23 @@ void arm_run(void)
     int done = 0;
 //三个关节之间的误差
     float err0, err1, err2;
-
+//如果初始化失败就返回
     if (!s_inited) { return; }
 
     now = HAL_GetTick();
-		
+//上一次run执行的时间
     if (s_last_tick) { s_dt = (float)(now - s_last_tick) * 0.001f; }
     s_last_tick = now;
     if (s_dt <= 0.0f)  { s_dt = 0.01f; }
     if (s_dt >  0.05f) { s_dt = 0.01f; }
 
-    /* update feedback */
+    /* update feedback and stop immediately if a channel is unhealthy */
     arm_refresh_feedback();
+    if (arm_feedback_ready(now) == 0U)
+    {
+        arm_fail_safe();
+        return;
+    }
 
     /* handle new command from debug */
     if (arm_cmd_new)
@@ -257,6 +376,7 @@ void arm_run(void)
     }
 
     /* run trajectory / hold */
+//五次多项式规划成功
     if (arm_traj_is_active())
     {
         done = arm_traj_update(s_dt, &q0, &q1, &q2, &v0, &v1, &v2);
@@ -275,8 +395,7 @@ void arm_run(void)
     else
     {
         /* hold:
-         *   before first target -> lock at actual position (no jump).
-         *   after a target       -> keep that target with zero velocity. */
+         *   如果没有五次多项式规划时，直接保持在原地，不做运动 */
         if (!s_target_set)
         {
             s_tgt_joint[0] = s_cur_joint[0];
