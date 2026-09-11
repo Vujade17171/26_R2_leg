@@ -94,5 +94,57 @@ typedef struct {
     EL05_MotorStatus_t status;
 } EL05_Handle_t;
 
+/* ==================== 腿臂运动总览（IK 缓存） ==================== */
+/**
+ * @brief  腿臂运动总览：缓存每次逆运动学解算得到的关节角和电机目标角，
+ *         同时保存当前末端姿态、IK 状态标志位等。
+ */
+typedef struct {
+    /* 关节角目标（rad） */
+    float q0_target;             /* 预留，本机械臂未使用 */
+    float q1_target;             /* 大臂目标角（绝对角） */
+    float q2_target;             /* 小臂相对角目标 */
+    float q3_target;             /* 腕部 EL05 目标角（相对小臂） */
+
+    /* 电机目标角（rad），由 joint_to_motor_* 转换而来 */
+    float motor1_target_angle;   /* AK80 目标角 */
+    float motor2_target_angle;   /* AK45 目标角 */
+    float motor3_target_angle;   /* EL05 目标角 */
+
+    /* 末端姿态目标（rad）：EL05 绝对姿态 = q1 + q2 + EL05 相对角 */
+    float yaw_target_angle;      /* 末端云台/姿态目标 */
+
+    /* 关节速度目标（rad/s），由五次多项式轨迹规划算出的前馈速度，
+     * 供电机 MIT 模式的 V_des（期望速度）使用，让运动更丝滑 */
+    float joint1_speed_target;   /* 大臂关节角速度 */
+    float joint2_speed_target;   /* 小臂关节角速度 */
+
+    /* 关节加速度目标（rad/s?），由轨迹规划算出的前馈加速度，
+     * 供电机力矩前馈（FF）使用，补偿惯量，减少跟踪滞后 */
+    float joint1_acc_target;     /* 大臂关节角加速度 */
+    float joint2_acc_target;     /* 小臂关节角加速度 */
+
+    /* 本次 IK 的代价（用于调试，越小越好；>=9999 表示无可行解） */
+    float nijie_cost;
+
+    /* 最近一次 IK 是否成功：0=成功，-1=失败 */
+    int   success;
+} LegMotion_t;
+
+/* ==================== 五次多项式轨迹规划句柄 ==================== */
+/**
+ * @brief  关节空间五次多项式轨迹规划句柄。
+ * @note   用归一化时间 tau = elapsed / duration 在 [0,1] 区间内做平滑插值，
+ *         位置、速度、加速度在起点和终点都连续（C2 连续），运动丝滑无冲击。
+ */
+typedef struct {
+    uint8_t active;      /* 轨迹是否激活：1=运行中，0=空闲/已结束 */
+    float   elapsed;     /* 已运行时间 (s)，每次 update 累加一个控制周期 */
+    float   duration;    /* 轨迹总时长 (s)，决定运动快慢 */
+    float   q1_start;    /* 起始关节角 q1 (rad)，启动时取当前电机角度 */
+    float   q2_start;    /* 起始关节角 q2 (rad)，启动时取当前电机角度 */
+    float   q1_end;      /* 目标关节角 q1 (rad)，用户指定 */
+    float   q2_end;      /* 目标关节角 q2 (rad)，用户指定 */
+} JTraj_t;
 
 #endif

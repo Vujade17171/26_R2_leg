@@ -12,7 +12,7 @@
 #define EL05_COMM_DISABLE            0x04  /* 电机停止运行 */
 #define EL05_COMM_SET_ZERO           0x06  /* 设置电机机械零位 */
 
-/* 主机 CAN ID（需大于电机 ID，官方 SDK 取 0xFF） */
+/* 主机 CAN ID*/
 #define EL05_HOST_ID                 0xFF
 
 /* ==================== EL05 MIT 运控模式量程（手册） ==================== */
@@ -27,7 +27,7 @@
 #define EL05_KD_MAX  5.0f     /* Kd 0 ~ 5 */
 #define EL05_KD_MIN  0.0f
 
-#define EL05_ID      0x01
+#define EL05_ID      0x03
 
 /* ==================== 函数声明 ==================== */
 extern EL05_Handle_t g_el05;

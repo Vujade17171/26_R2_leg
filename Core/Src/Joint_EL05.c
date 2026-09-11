@@ -75,7 +75,7 @@ HAL_StatusTypeDef EL05_Motion_Init(EL05_Handle_t *el05, FDCAN_HandleTypeDef *pca
     }
 
     if (motor_id == 0) {
-        motor_id = EL05_ID;  /* 默认 ID 为 1 */
+        motor_id = EL05_ID;
     }
 
     el05->pcan_handle   = pcan;

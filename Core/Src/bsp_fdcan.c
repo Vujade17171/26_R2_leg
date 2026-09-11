@@ -8,24 +8,25 @@ AK_Handle_t g_ak45 = {0};
 //函数1：CAN过滤器
 void can_filter_init(void)
 {
-    FDCAN_FilterTypeDef can_filter_st;          //定义一个过滤器类型的结构体
-    can_filter_st.IdType                        = FDCAN_STANDARD_ID;//标准ID
-    can_filter_st.FilterType                    = FDCAN_FILTER_MASK;//掩码模式
-    can_filter_st.FilterConfig                  = FDCAN_FILTER_TO_RXFIFO0;//配置邮箱为0
-    can_filter_st.FilterID1                     = 0x0000;//标识符/掩码 高32位
-    can_filter_st.FilterID2                     = 0x0000;//标识符/掩码 低32位
-    can_filter_st.FilterIndex                   = 0;//设置CAN过滤器的编号，这里设置为0
+    FDCAN_FilterTypeDef can_filter_st_AK;          //定义一个过滤器类型的结构体
+		FDCAN_FilterTypeDef can_filter_st_EL;
+    can_filter_st_AK.IdType                        = FDCAN_STANDARD_ID;//标准ID
+    can_filter_st_AK.FilterType                    = FDCAN_FILTER_MASK;//掩码模式
+    can_filter_st_AK.FilterConfig                  = FDCAN_FILTER_TO_RXFIFO0;//配置邮箱为0
+    can_filter_st_AK.FilterID1                     = 0x0000;//标识符/掩码 高32位
+    can_filter_st_AK.FilterID2                     = 0x0000;//标识符/掩码 低32位
+    can_filter_st_AK.FilterIndex                   = 0;//设置CAN过滤器的编号，这里设置为0
     
-    HAL_FDCAN_ConfigFilter(&hfdcan1, &can_filter_st);//配置can过滤器
+    HAL_FDCAN_ConfigFilter(&hfdcan1, &can_filter_st_AK);//配置can过滤器
 
     /* 扩展帧过滤器（EL05，29 位扩展帧） */
-    can_filter_st.IdType    = FDCAN_EXTENDED_ID;
-    can_filter_st.FilterType = FDCAN_FILTER_MASK;
-    can_filter_st.FilterConfig = FDCAN_FILTER_TO_RXFIFO0;
-    can_filter_st.FilterID1 = 0x0000;
-    can_filter_st.FilterID2 = 0x0000;
-    can_filter_st.FilterIndex = 1;//扩展帧过滤器编号
-    HAL_FDCAN_ConfigFilter(&hfdcan1, &can_filter_st);//配置扩展帧过滤器
+    can_filter_st_EL.IdType    = FDCAN_EXTENDED_ID;
+    can_filter_st_EL.FilterType = FDCAN_FILTER_MASK;
+    can_filter_st_EL.FilterConfig = FDCAN_FILTER_TO_RXFIFO0;
+    can_filter_st_EL.FilterID1 = 0x0000;
+    can_filter_st_EL.FilterID2 = 0x0000;
+    can_filter_st_EL.FilterIndex = 1;//扩展帧过滤器编号
+    HAL_FDCAN_ConfigFilter(&hfdcan1, &can_filter_st_EL);//配置扩展帧过滤器
 
     HAL_FDCAN_Start(&hfdcan1);//使能can通信
     HAL_FDCAN_ActivateNotification(&hfdcan1, FDCAN_IT_RX_FIFO0_NEW_MESSAGE, 0);//使能接收完成中断
@@ -56,7 +57,7 @@ HAL_StatusTypeDef can_send_data(AK_Handle_t*ak,uint32_t cob_id, uint8_t *data, u
     txHeader.TxEventFifoControl  = FDCAN_NO_TX_EVENTS;        /* 不存储发送事件 */
     txHeader.MessageMarker       = 0;                         /* 消息标记 */
     
-    return a=HAL_FDCAN_AddMessageToTxFifoQ(ak->pcan_handle, &txHeader, data);
+    return HAL_FDCAN_AddMessageToTxFifoQ(ak->pcan_handle, &txHeader, data);
 }
 //函数3：数据发送函数（扩展帧，EL05）
 HAL_StatusTypeDef can_send_ext_data(FDCAN_HandleTypeDef *pcan, uint32_t ext_id, uint8_t *data, uint8_t len)
@@ -80,7 +81,7 @@ HAL_StatusTypeDef can_send_ext_data(FDCAN_HandleTypeDef *pcan, uint32_t ext_id, 
     txHeader.TxEventFifoControl  = FDCAN_NO_TX_EVENTS;        /* 不存储发送事件 */
     txHeader.MessageMarker       = 0;                         /* 消息标记 */
 
-    return HAL_FDCAN_AddMessageToTxFifoQ(pcan, &txHeader, data);
+    return a=HAL_FDCAN_AddMessageToTxFifoQ(pcan, &txHeader, data);
 }
 //函数4：FDCAN接收回调 - 处理电机反馈数据AK80
 void AK_Motion_FDCAN_RxCallback(AK_Handle_t*ak,FDCAN_HandleTypeDef *pcan)

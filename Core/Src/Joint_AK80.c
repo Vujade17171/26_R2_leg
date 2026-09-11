@@ -158,3 +158,22 @@ HAL_StatusTypeDef AK_Motion_Control(AK_Handle_t*ak,float position, float speed,
     
     return can_send_data(ak,ak->motor_id, data, 8);
 }
+//函数5：电机错误监测（安全保护）
+//作用：周期检查电机的 error_code，一旦出错就调用 AK_Motion_Exit 失能，
+//      让电机退出运控模式，不再接收控制指令，从而避免过流/过热烧坏电机。
+void AK_Error_Monitor(void)
+{
+    /* ---- 检查大臂电机 g_ak80 ---- */
+    /* 只对"已使能"的电机做检查；没使能说明已经失能过了，不用重复处理 */
+    if (g_ak80.is_entered && AK_IS_ERROR(g_ak80.status.error_code)) {
+        /* 出错：失能大臂电机，停止接收控制指令 */
+        AK_Motion_Exit(&g_ak80);
+    }
+
+    /* ---- 检查小臂电机 g_ak45 ---- */
+    /* 同上：已使能且出错才失能 */
+    if (g_ak45.is_entered && AK_IS_ERROR(g_ak45.status.error_code)) {
+        /* 出错：失能小臂电机 */
+        AK_Motion_Exit(&g_ak45);
+    }
+}
