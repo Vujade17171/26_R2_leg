@@ -55,8 +55,7 @@ void jacobian_rz(float q1, float q2, float* J11, float* J12, float* J21, float* 
 
 /* ================== 关节角 <-> 电机角 零点/方向换算 ================== */
 
-/* 设置两个关节的零点偏移（rad），使用换算函数前先调用 */
-void Kinematics_SetOffset(float offset_down, float offset_up);
+
 
 /* 关节角 -> 电机角 */
 float joint_to_motor_1(float q1);

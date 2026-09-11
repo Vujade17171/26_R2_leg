@@ -121,6 +121,14 @@ uint8_t AK_Motor_SetZero(AK_Motor *m)
     return AK_Bus_Send(m->bus, m->id, z, 8u);
 }
 
+/* 【已停用】AK45-10（电机 ID=2）取反：翻转电机正方向
+ * 启用时需发送(p/v/t)与反馈(pos/vel/torque)成对取反；
+ * 注意启用后 g_offset_up 的符号也要随之改变。 */
+// static float AK_DirSign(uint8_t motor_id)
+// {
+//     return (motor_id == 2u) ? -1.0f : 1.0f;
+// }
+
 /* 运控MIT：打包并发送位置/速度/扭矩指令 */
 uint8_t AK_Motor_MIT(AK_Motor *m, float pos_rad, float vel_rad_s,
                      float kp, float kd, float tor_nm)
@@ -131,6 +139,11 @@ uint8_t AK_Motor_MIT(AK_Motor *m, float pos_rad, float vel_rad_s,
 
     if (m == 0) { return AK_ERR_PARAM; }
     mdl = m->model;
+
+    /* 【已停用】AK45-10(ID=2) 取反：
+     * float s = AK_DirSign(m->id);
+     * if (s < 0.0f) { pos_rad = -pos_rad; vel_rad_s = -vel_rad_s; tor_nm = -tor_nm; } */
+
     p_i  = AK_Float_To_Uint(pos_rad,  mdl->p_min, mdl->p_max, 16u, &ok); if (ok != AK_OK) { return ok; }
     v_i  = AK_Float_To_Uint(vel_rad_s, mdl->v_min, mdl->v_max, 12u, &ok); if (ok != AK_OK) { return ok; }
     kp_i = AK_Float_To_Uint(kp, 0.0f, mdl->kp_max, 12u, &ok);             if (ok != AK_OK) { return ok; }
@@ -170,6 +183,13 @@ uint8_t AK_Motor_OnCanRx(AK_Motor *m, uint32_t std_id,
     /* 手册：Temperature = T_int - 40（范围 -40~215） */
     m->temp_c    = (int16_t)data[6] - 40;
     m->err_code  = data[7];
+
+    /* 【已停用】AK45-10(ID=2) 反馈取反（启用取反时需与发送侧成对开启）：
+     * if (AK_DirSign(m->id) < 0.0f) {
+     *     m->pos_rad   = -m->pos_rad;
+     *     m->vel_rads  = -m->vel_rads;
+     *     m->torque_nm = -m->torque_nm;
+     * } */
     return AK_OK;
 }
 

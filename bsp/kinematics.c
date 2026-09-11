@@ -178,28 +178,25 @@ void jacobian_rz(float q1, float q2, float* J11, float* J12, float* J21, float* 
 
 /* ================== 关节角 <-> 电机角 零点/方向换算 ================== */
 
-/* 零点偏移（rad）：电机在"关节零位"时的编码器读数，按装机标定 */
-static float g_offset_down = 3.141593f ;
-static float g_offset_up   = -2.6511548f ;
-
+/* 零点偏移（rad）：关节零位时电机角 m 满足 q = offset - m(大臂) / q = m + offset(小臂)
+ * 实测：大臂零位原始读数 0.308 → offset_down = 0.308；
+ *       小臂零位原始读数 0.756（未取反）→ offset_up = -0.756 */
+static float g_offset_down =  0.308f;
+static float g_offset_up   =  -1.90f;
 /* 设置两个关节的零点偏移（rad） */
-void Kinematics_SetOffset(float offset_down, float offset_up)
-{
-    g_offset_down = offset_down;
-    g_offset_up   = offset_up;
-}
+
 
 /* 关节角 -> 电机角（q1 这条方向相反） */
-float joint_to_motor_1(float q1) { return g_offset_down - q1; }
+float joint_to_motor_1(float q1) { return g_offset_down + q1; }
 
 /* 关节角 -> 电机角（q2 这条方向相同） */
-float joint_to_motor_2(float q2) { return q2 - g_offset_up; }
+float joint_to_motor_2(float q2) { return q2 + g_offset_up; }
 
 /* 电机角 -> 关节角 */
-float motor_to_joint_1(float m1) { return g_offset_down - m1; }
+float motor_to_joint_1(float m1) { return m1 - g_offset_down ; }
 
 /* 电机角 -> 关节角 */
-float motor_to_joint_2(float m2) { return m2 + g_offset_up; }
+float motor_to_joint_2(float m2) { return m2 - g_offset_up; }
 
 /* ================== 重力补偿 ================== */
 
