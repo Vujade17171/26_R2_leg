@@ -65,11 +65,26 @@ float joint_to_motor_2(float q2);
 float motor_to_joint_1(float m1);
 float motor_to_joint_2(float m2);
 
+/* ================== 关节空间限速（摆动速率限制） ==================
+ * 运控(MIT)模式的协议里只有 p/v/kp/kd/t，没有"速度上限"参数（v 是前馈速度，
+ * 配 kd 起阻尼，不是限速指令），所以限速在主控侧做：
+ * 限制每拍关节指令角的增量 = 限速值(rad/s) × dt，从而限制电机摆动速率。
+ * 限速值在 kinematics.c 顶部的 JOINT_RATE_Q1/Q2/Q3_MAX 里，改那里即可。 */
+
+/* 期望关节角 -> 每拍增量受限的指令关节角
+ *   q_des：IK 解出的期望关节角
+ *   dt   ：距上次调用的实测周期 (s)，<=0 时不做限速（首拍/异常周期）
+ *   q_cmd：输出限速后的指令关节角（q_cmd 与 q_des 不能是同一个变量） */
+void joint_rate_limit(const LegJointAngles *q_des, float dt, LegJointAngles *q_cmd);
+
+/* 复位限速器状态：以上电时的实际关节角作为指令起点，保证首拍不跳变 */
+void joint_rate_limit_reset(const LegJointAngles *q_now);
+
 /* ================== 重力补偿（简单杠杆原理） ==================
  * 每个关节的重力矩 = Σ (质量 × g × 该关节到该质量质心的水平距离)
  * 水平距离 = 各段长度 × cos(该段的绝对角度)，即力臂的水平投影。 */
 
-/* 重力补偿配置：质量、质心力臂、方向、减速比 */
+/* 重力补偿配置：质量、质心力臂、方向、减速比、限幅与变化率限制 */
 typedef struct {
     float m_arm;    /* 大臂连杆质量 (kg)                          */
     float lc_arm;   /* 大臂质心距肩关节 (m)                       */
@@ -81,15 +96,20 @@ typedef struct {
     float dir_sh;   /* 肩：关节->电机 方向 (+1/-1)                */
     float dir_el;   /* 肘：方向 (+1/-1)                           */
     float dir_wr;   /* 腕：方向 (+1/-1)，电机反馈角=-关节角 → -1   */
-    float gear_sh;  /* 肩补偿强度除数：1.0=输出侧口径；调大→补偿变小 */
-    float gear_el;  /* 肘补偿强度除数：同上                          */
-    float gear_wr;  /* 腕补偿强度除数：同上                          */
+    float gear_sh;  /* 肩：减速比/补偿强度，用当前工程数值          */
+    float gear_el;  /* 肘：同上                                   */
+    float gear_wr;  /* 腕：同上                                   */
+    float max_torque_sh; /* 肩力矩限幅 (N·m，电机侧)              */
+    float max_torque_el; /* 肘力矩限幅 (N·m，电机侧)              */
+    float max_torque_wr; /* 腕力矩限幅 (N·m，电机侧)              */
+    float rate_limit;    /* 力矩变化率限制 (N·m/s，电机侧)         */
 } grav_cfg_t;
 
 /* 重力补偿（杠杆原理）：
  *   q1/q2/q3  肩/肘/腕关节角 (rad)，腕关节角 = −EL05 电机反馈角
- *   输出力矩 = dir × (Σ 质量×g×水平力臂) / gear
- *            gear=1.0 即输出侧口径；实测偏差只需调 kinematics.c 里的 gear
+ *   输出力矩 = dir × (Σ 质量×g×水平力臂) / gear，再经限幅 + 变化率限制平滑
+ *            gear 用当前工程数值；实测偏差只需调 kinematics.c 里的 gear
+ *   变化率限制的周期由 DWT 实测，需先调用 DWT_Init()
  *   tau_sh/tau_el/tau_wr 可传 NULL 表示不输出 */
 void get_gravity_comp_torque(float q1, float q2, float q3,
                              float *tau_sh, float *tau_el, float *tau_wr);

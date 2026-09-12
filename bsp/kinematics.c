@@ -6,6 +6,7 @@
  *****************************************************************************/
 #include "kinematics.h"
 #include <math.h>
+#include "bsp_dwt.h"   /* DWT_GetDeltaT：实测调用周期，用于力矩变化率限制 */
 
 /* 连杆参数（全局，Init 时写入） */
 static LegLinkParam g_link;
@@ -24,11 +25,13 @@ static float g_q2_prev = 0.0f;
 #define AK_TWO_PI    6.28318530717959f
 
 /* ================= 重力补偿参数（按实测调整） =================
- * 补偿力矩 = dir × (Σ 质量×g×水平力臂) / gear
- *   - gear：补偿强度缩放。填 1.0 = 输出侧口径(不缩放)；
+ * 补偿力矩 = dir × (Σ 质量×g×水平力臂) / gear，再做限幅 + 变化率限制
+ *   - gear：减速比/补偿强度，用当前工程使用的数值；
  *           实测补偿过大就把对应 gear 调大，不足就调小。
  *   - dir ：关节->电机 方向，同号 +1、反向 -1。
- *   - lc_*：各质量质心到对应关节的距离。 */
+ *   - lc_*：各质量质心到对应关节的距离。
+ *   - max_torque_*：力矩限幅 (N·m，电机侧)。
+ *   - rate_limit  ：力矩变化率限制 (N·m/s)，周期由 DWT 实测。 */
 static const grav_cfg_t grav = {
     .m_arm   = 0.300f,   /* 大臂连杆质量 (kg) */
     .lc_arm  = 0.175f,   /* 大臂质心距肩 (m) */
@@ -40,9 +43,13 @@ static const grav_cfg_t grav = {
     .dir_sh  = 1.0f,     /* 肩方向 */
     .dir_el  = 1.0f,     /* 肘方向 */
     .dir_wr  = -1.0f,    /* 腕方向：EL05 电机反馈角 = -关节角 */
-    .gear_sh = 1.5f,     /* ← 肩补偿强度：调大=补偿变小，调小=补偿变大 */
-    .gear_el = 1.4f,     /* ← 肘补偿强度：同上 */
-    .gear_wr = 1.0f      /* ← 腕补偿强度：同上 */
+    .gear_sh = 1.5f,     /* 肩：当前工程数值 */
+    .gear_el = 1.8f,     /* 肘：当前工程数值 */
+    .gear_wr = 1.0f,     /* 腕：当前工程数值 */
+    .max_torque_sh = 6.0f,   /* 肩力矩限幅 (N·m) */
+    .max_torque_el = 5.5f,   /* 肘力矩限幅 (N·m) */
+    .max_torque_wr = 5.0f,   /* 腕力矩限幅 (N·m) */
+    .rate_limit    = 50.0f   /* 力矩变化率限制 (N·m/s) */
 };
 
 /* 角度归一化到 [-PI, PI] */
@@ -201,6 +208,72 @@ float motor_to_joint_1(float m1) { return m1 - g_offset_down ; }
 /* 电机角 -> 关节角 */
 float motor_to_joint_2(float m2) { return m2 - g_offset_up; }
 
+/* ================= 关节空间限速参数（rad/s，按实测调整） =================
+ * 摆动速率上限：每拍指令角最多变化 限速值 × dt。
+ *   肩/肘 2.0 rad/s ≈ 115°/s；腕 1.0 rad/s ≈ 57°/s。
+ * 只限制"期望轨迹"的推进速度：kp≠0 时电机实际摆速≈该上限；
+ * 但 kp=0（纯力矩测试）或外力推动时实际速度不受此约束。 */
+#define JOINT_RATE_Q1_MAX   3.0f
+#define JOINT_RATE_Q2_MAX   3.0f
+#define JOINT_RATE_Q3_MAX   1.0f
+
+/* 限速器状态：上一拍限速后的指令关节角 */
+static LegJointAngles g_q_cmd = { 0.0f, 0.0f, 0.0f };
+static uint8_t g_q_cmd_inited = 0u;
+
+/* 复位限速器：以当前实际关节角作为指令起点（首拍不跳变） */
+void joint_rate_limit_reset(const LegJointAngles *q_now)
+{
+    if (q_now == 0) { return; }
+
+    g_q_cmd = *q_now;
+    g_q_cmd_inited = 1u;
+}
+
+/* 单关节限速：每拍最多变化 max_rate×dt，落后不足一步则直接吸附到目标 */
+static float rate_step(float des, float cmd, float max_rate, float dt)
+{
+    float step, err;
+
+    if ((g_q_cmd_inited == 0u) || (dt <= 0.0f)) { return des; }  /* 首拍/异常周期：不限速 */
+
+    step = max_rate * dt;
+    err  = des - cmd;
+
+    if (err >  step) { return cmd + step; }
+    if (err < -step) { return cmd - step; }
+    return des;   /* 到位收尾：吸附目标，避免浮点残差永远到不了位 */
+}
+
+/* 期望关节角 -> 每拍增量受限的指令关节角 */
+void joint_rate_limit(const LegJointAngles *q_des, float dt, LegJointAngles *q_cmd)
+{
+    if ((q_des == 0) || (q_cmd == 0)) { return; }
+
+    g_q_cmd.q1 = rate_step(q_des->q1, g_q_cmd.q1, JOINT_RATE_Q1_MAX, dt);
+    g_q_cmd.q2 = rate_step(q_des->q2, g_q_cmd.q2, JOINT_RATE_Q2_MAX, dt);
+    g_q_cmd.q3 = rate_step(q_des->q3, g_q_cmd.q3, JOINT_RATE_Q3_MAX, dt);
+
+    g_q_cmd_inited = 1u;
+    *q_cmd = g_q_cmd;
+}
+
+/* 力矩限幅 + 变化率限制（平滑，避免突变） */
+static float limit_torque(float target, float last, float max_abs,
+                          float rate_limit, float dt)
+{
+    float step;
+
+    if (target >  max_abs) { target =  max_abs; }
+    if (target < -max_abs) { target = -max_abs; }
+    if (dt <= 0.0f) { return target; }   /* 首拍或异常周期：只限幅不限速 */
+
+    step = rate_limit * dt;
+    if (target - last >  step) { target = last + step; }
+    if (target - last < -step) { target = last - step; }
+    return target;
+}
+
 /* ================== 重力补偿（简单杠杆原理） ==================
  * 每个关节的重力矩 = Σ (质量 × g × 该关节到该质量质心的水平距离)
  * 水平距离 = 各段长度 × cos(该段绝对角)，即力臂的水平投影。
@@ -210,14 +283,24 @@ float motor_to_joint_2(float m2) { return m2 - g_offset_up; }
  *   肘部质量 m_elbow : 水平距离 = L1·c1
  *   腕点质量 m_wrist : 水平距离 = L1·c1 + L2·c12
  *   腕部负载 m_load  : 水平距离 = L1·c1 + L2·c12 + lc_load·c123
- * 其中 c1 = cos(q1)、c12 = cos(q1+q2)、c123 = cos(q1+q2+q3)。 */
+ * 其中 c1 = cos(q1)、c12 = cos(q1+q2)、c123 = cos(q1+q2+q3)。
+ *
+ * 输出 = dir × 力矩 / gear，再经【限幅 + 变化率限制】平滑下发。
+ * 变化率限制用 DWT 实测周期（需先调用 DWT_Init），首拍不限速。 */
 void get_gravity_comp_torque(float q1, float q2, float q3,
                              float *tau_sh, float *tau_el, float *tau_wr)
 {
+    static float last_tau_sh = 0.0f;
+    static float last_tau_el = 0.0f;
+    static float last_tau_wr = 0.0f;
+    static uint32_t dwt_cnt_last = 0;   /* DWT 计数缓存，用于算实际周期 */
+    static uint8_t  first_run = 1u;     /* 首拍标记：不做限速，直接取目标值 */
+
     const float g = grav.g;
     const float L1 = g_link.L1;
     const float L2 = g_link.L2;
     float c1, c12, c123;
+    float dt, o_sh, o_el, o_wr;
     float t1 = 0.0f, t2 = 0.0f, t3 = 0.0f;
 
     c1   = cosf(q1);
@@ -237,15 +320,22 @@ void get_gravity_comp_torque(float q1, float q2, float q3,
     /* ---- 腕关节：腕之后（远端）的质量 ---- */
     t3 += grav.m_load  * g * (grav.lc_load * c123);
 
-    /* 补偿强度调节：除以 gear（把 gear 设为 1.0 即为输出侧口径）。
-     * 实测补偿过大 → 把 gear 调大；补偿不足 → 把 gear 调小。 */
-    if (tau_sh != 0) {
-        *tau_sh = (grav.gear_sh > 0.0f) ? (grav.dir_sh * t1 / grav.gear_sh) : 0.0f;
-    }
-    if (tau_el != 0) {
-        *tau_el = (grav.gear_el > 0.0f) ? (grav.dir_el * t2 / grav.gear_el) : 0.0f;
-    }
-    if (tau_wr != 0) {
-        *tau_wr = (grav.gear_wr > 0.0f) ? (grav.dir_wr * t3 / grav.gear_wr) : 0.0f;
-    }
+    /* 折算：除以 gear（用当前工程数值），得到电机侧力矩 */
+    o_sh = (grav.gear_sh > 0.0f) ? (grav.dir_sh * t1 / grav.gear_sh) : 0.0f;
+    o_el = (grav.gear_el > 0.0f) ? (grav.dir_el * t2 / grav.gear_el) : 0.0f;
+    o_wr = (grav.gear_wr > 0.0f) ? (grav.dir_wr * t3 / grav.gear_wr) : 0.0f;
+
+    /* 变化率限制用的周期：由 DWT 实测 */
+    dt = DWT_GetDeltaT(&dwt_cnt_last);
+    if (first_run != 0u) { first_run = 0u; dt = 0.0f; }  /* 首拍：直接取目标值作初值 */
+    if (dt > 0.05f)      { dt = 0.05f; }                 /* 卡顿/异常大周期上限 50ms */
+
+    /* 限幅 + 变化率平滑 */
+    last_tau_sh = limit_torque(o_sh, last_tau_sh, grav.max_torque_sh, grav.rate_limit, dt);
+    last_tau_el = limit_torque(o_el, last_tau_el, grav.max_torque_el, grav.rate_limit, dt);
+    last_tau_wr = limit_torque(o_wr, last_tau_wr, grav.max_torque_wr, grav.rate_limit, dt);
+
+    if (tau_sh != 0) { *tau_sh = last_tau_sh; }
+    if (tau_el != 0) { *tau_el = last_tau_el; }
+    if (tau_wr != 0) { *tau_wr = last_tau_wr; }
 }
