@@ -52,9 +52,9 @@ void MX_FDCAN1_Init(void)
   hfdcan1.Init.DataTimeSeg1 = 1;
   hfdcan1.Init.DataTimeSeg2 = 1;
   hfdcan1.Init.MessageRAMOffset = 0;
-  hfdcan1.Init.StdFiltersNbr = 1;   /* 标准帧滤波器 x1（AK 电机反馈） */
-  hfdcan1.Init.ExtFiltersNbr = 1;   /* 扩展帧滤波器 x1（EL05 电机反馈） */
-  hfdcan1.Init.RxFifo0ElmtsNbr = 32;  /* RX FIFO0 元素 x32（同时装 AK+EL05 反馈） */
+  hfdcan1.Init.StdFiltersNbr = 1;
+  hfdcan1.Init.ExtFiltersNbr = 1;
+  hfdcan1.Init.RxFifo0ElmtsNbr = 32;
   hfdcan1.Init.RxFifo0ElmtSize = FDCAN_DATA_BYTES_8;
   hfdcan1.Init.RxFifo1ElmtsNbr = 0;
   hfdcan1.Init.RxFifo1ElmtSize = FDCAN_DATA_BYTES_8;

@@ -202,19 +202,23 @@ float joint_to_motor_1(float q1) { return g_offset_down + q1; }
 /* 关节角 -> 电机角（q2 这条方向相同） */
 float joint_to_motor_2(float q2) { return q2 + g_offset_up; }
 
+float joint_to_motor_3(float q3) { return -q3 ; }
+
 /* 电机角 -> 关节角 */
 float motor_to_joint_1(float m1) { return m1 - g_offset_down ; }
 
 /* 电机角 -> 关节角 */
 float motor_to_joint_2(float m2) { return m2 - g_offset_up; }
 
+float motor_to_joint_3(float m3) { return -m3 ; }
+
 /* ================= 关节空间限速参数（rad/s，按实测调整） =================
  * 摆动速率上限：每拍指令角最多变化 限速值 × dt。
  *   肩/肘 2.0 rad/s ≈ 115°/s；腕 1.0 rad/s ≈ 57°/s。
  * 只限制"期望轨迹"的推进速度：kp≠0 时电机实际摆速≈该上限；
  * 但 kp=0（纯力矩测试）或外力推动时实际速度不受此约束。 */
-#define JOINT_RATE_Q1_MAX   3.0f
-#define JOINT_RATE_Q2_MAX   3.0f
+#define JOINT_RATE_Q1_MAX   5.0f
+#define JOINT_RATE_Q2_MAX   5.0f
 #define JOINT_RATE_Q3_MAX   1.0f
 
 /* 限速器状态：上一拍限速后的指令关节角 */

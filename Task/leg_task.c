@@ -23,6 +23,11 @@
 #define ARM_FAULT_HOLD_KP   40.0f
 #define ARM_FAULT_HOLD_KD    1.5f
 
+/* 控制周期 (s)：循环里 AK 帧与 EL05 帧之间插了 1ms 延时，该延时不计入 dt，
+ * 所以限速/解算统一按这个固定值算 dt —— dt 与加延时之前完全一致，
+ * 不会因为多等 1ms 被放大成 2ms。 */
+#define ARM_CTRL_DT_S       0.001f
+
 AK_Motor motors[2];  /* 电机句柄数组：motors[0]=大臂(肩)，motors[1]=小臂(肘) */
 
 LegLinkParam leg_link_param = { D_L1, D_L2, D_L3 };  /* 连杆参数：大臂/小臂/腕部长度，单位 m */
@@ -33,9 +38,9 @@ FootPosition target_pos = { 0.1f, 0.3f }; //目标末端位置 x,z
 
 FootPosition FK_pos = { 0.0f, 0.0f }; //正解得到的当前末端位置 x,z
 
-float b,c,d;   /* 调试用：b=肩前馈, c=肘前馈, d=腕(EL05)前馈 */
+volatile float b,c,d;   /* 调试用：b=肩前馈, c=肘前馈, d=腕(EL05)前馈 */
 
-LegJointAngles q_cmd_dbg = { 0.0f, 0.0f, 0.0f };  /* 调试用：限速后的关节指令角（对比 motor_angles） */
+volatile LegJointAngles q_cmd_dbg = { 0.0f, 0.0f, 0.0f };  /* 调试用：限速后的关节指令角（对比 motor_angles） */
 
 /* 电机数量：供 Mycan 接收回调按 sizeof 自动计算，新增电机无需改这里 */
 const uint8_t g_ak_motor_num = (uint8_t)(sizeof(motors) / sizeof(motors[0]));
@@ -47,7 +52,7 @@ const uint8_t g_el05_motor_num = (uint8_t)(sizeof(el05_motors) / sizeof(el05_mot
 /* 机械臂控制：输入目标末端位置 x,y，内部完成 逆解→前馈/重力补偿→正解→MIT 下发 */
 void arm_control(float x, float y);
 
-
+//========================================任务函数=========================================
 void leg_task(void *argument)
 {
 
@@ -58,6 +63,7 @@ void leg_task(void *argument)
   
   AK_Motor_Enable(&motors[0]); 
   AK_Motor_Enable(&motors[1]); 
+	osDelay(1);
   EL05_Enable(&el05_motors[0]);
 
   Kinematics_Init(&leg_link_param);
@@ -91,24 +97,25 @@ void leg_task(void *argument)
     {
       /* TODO: 目标点后续接轨迹规划输出；现在用 target_pos 里的常值 */
       arm_control(target_pos.x, target_pos.z);
-      tick += 1u;              /* 1 tick = 1ms（configTICK_RATE_HZ = 1000） */
-      osDelayUntil(tick);      /* 固定 1kHz 节拍，避免 osDelay(1) 的周期抖动 */
+
+      tick += 1u;
+      osDelayUntil(tick);
+
+			EL05_MotionControl(&el05_motors[0], joint_to_motor_3(3.141592f-(b+c)), 0.0f, 40.0f, 1.0f, d);
+
+      tick += 1u;
+      osDelayUntil(tick);
     }
   }
 }
 
-/* ============================================================================
- *  机械臂控制算法（逆解 + 前馈/重力补偿 + 正解 + MIT 下发）
- *  输入：x, y —— 目标末端位置(m)，y 对应竖直方向(即 FK 的 z)
- *  motors[0] = 大臂(肩)，motors[1] = 小臂(肘)
- *  使用文件内已定义：motors[] / motor_angles / target_pos / FK_pos
- * ==========================================================================*/
+// ============================================================================
+
 void arm_control(float x, float y)
 {
     float q3_now = 0.0f;                                  /* 第三关节(EL05)角度 */
     float tau_sh = 0.0f, tau_el = 0.0f, tau_wr = 0.0f;    /* 重力补偿力矩 N·m */
-    float dt;                                            /* 距上次调用的实测周期 s */
-    static uint32_t dwt_cnt_last = 0;                    /* DWT 计数缓存（限速用） */
+    float dt;                                            /* 控制周期 s（固定值，不含循环里的 1ms 延时） */
     FootPosition target;
     LegJointAngles q_des;
     LegJointAngles q_cmd;                                /* 限速后的指令关节角 */
@@ -146,9 +153,9 @@ void arm_control(float x, float y)
     (void)Kinematics_Inverse(&target, &q_des, -1);
 
     /* 5.1 关节空间限速：限制每拍关节角增量（= 摆动速率上限，参数在 kinematics.c 顶部）
-     *     dt 用 DWT 实测周期，异常大周期（卡顿）按 50ms 上限处理 */
-    dt = DWT_GetDeltaT(&dwt_cnt_last);
-    if (dt > 0.05f) { dt = 0.05f; }
+     *     dt 用固定控制周期 ARM_CTRL_DT_S：循环里插入的 1ms 延时不算进去，
+     *     dt 的值与加延时之前一致（否则延时会让每拍步长被放大） */
+    dt = ARM_CTRL_DT_S;
     q_des.q3 = q3_now;          /* 腕当前指令为"保持当前角"，故以实际角作期望 */
     joint_rate_limit(&q_des, dt, &q_cmd);
     q_cmd_dbg = q_cmd;          /* 调试：Watch 里对比 q_cmd_dbg 与 motor_angles */
@@ -157,20 +164,23 @@ void arm_control(float x, float y)
      *    再除以 gear（当前工程数值）折算到电机侧，并做限幅 + 变化率限制 */
     get_gravity_comp_torque(motor_angles.q1, motor_angles.q2, q3_now,
                             &tau_sh, &tau_el, &tau_wr);
-    b = tau_sh;
-    c = tau_el;
+    b = motor_angles.q1;
+    c = motor_angles.q2;
     d = tau_wr;
     
 
-    AK_Motor_MIT(&motors[0], joint_to_motor_1(q_cmd.q1), 0.0f, 30.0f, 2.0f, tau_sh);
-    AK_Motor_MIT(&motors[1], joint_to_motor_2(q_cmd.q2), 0.0f, 30.0f, 2.0f, tau_el);
+    AK_Motor_MIT(&motors[0], joint_to_motor_1(q_cmd.q1), 0.0f, 30.0f, 3.0f, tau_sh);
+    AK_Motor_MIT(&motors[1], joint_to_motor_2(q_cmd.q2), 0.0f, 30.0f, 3.0f, tau_el);
     /* 7. 下发前馈力矩（kp=kd=0 → 纯重力补偿测试）
      *   注意：重力补偿为【电机侧口径】(已除 gear) + 限幅/变化率限制；
      *         变化率周期取自 DWT，故必须在任务启动前调用过 DWT_Init()；
      *         若实测补偿过强/过弱，改 kinematics.c 里的 gear、dir 或质量参数 */
+//力控测试
 //     AK_Motor_MIT(&motors[0], 0.0f, 0.0f, 0.0f, 0.0f, tau_sh);
 //     AK_Motor_MIT(&motors[1], 0.0f, 0.0f, 0.0f, 0.0f, tau_el);
+//零力矩测试
+//     AK_Motor_MIT(&motors[0], 0.0f, 0.0f, 0.0f, 0.0f, 0.0f);
+//     AK_Motor_MIT(&motors[1], 0.0f, 0.0f, 0.0f, 0.0f, 0.0f);
     /* EL05：位置 = 限速后的指令角（关节->电机：m = −q3，与"保持"指令等价）；
      *       当前 kp=kd=0，只出力矩，腕限速待接位置指令后自然生效 */
-    EL05_MotionControl(&el05_motors[0], -q_cmd.q3, 0.0f, 0.0f, 0.0f, tau_wr);
 }

@@ -60,10 +60,13 @@ void jacobian_rz(float q1, float q2, float* J11, float* J12, float* J21, float* 
 /* 关节角 -> 电机角 */
 float joint_to_motor_1(float q1);
 float joint_to_motor_2(float q2);
+float joint_to_motor_3(float q3);
 
 /* 电机角 -> 关节角 */
 float motor_to_joint_1(float m1);
 float motor_to_joint_2(float m2);
+float motor_to_joint_3(float m3);
+
 
 /* ================== 关节空间限速（摆动速率限制） ==================
  * 运控(MIT)模式的协议里只有 p/v/kp/kd/t，没有"速度上限"参数（v 是前馈速度，
