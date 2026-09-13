@@ -6,7 +6,6 @@
   */
 #include "arm_kinematics.h"
 #include <math.h>
-#include <stddef.h>
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846f
@@ -103,80 +102,5 @@ int arm_inverse(float x, float z, float yaw,
     *q0 = yaw;
     *q1 = q1v;
     *q2 = q2v;
-    return 0;
-}
-
-/* Solve one elbow branch. sin_sign = +1: elbow-up, -1: elbow-down. */
-static int arm_inverse_branch(float x, float z, float yaw, float sin_sign,
-                              float *q0, float *q1, float *q2)
-{
-    float D2, cosq2, sinq2, q2v, phi, psi, q1v;
-
-    if ((q0 == 0) || (q1 == 0) || (q2 == 0)) { return -1; }
-    if (arm_reachable(x, z) != 0) { return -1; }
-    if (arm_in_limit(yaw, 0) == 0) { return -1; }
-
-    D2 = x * x + z * z;
-    cosq2 = (D2 - ARM_L1 * ARM_L1 - ARM_L2 * ARM_L2) /
-            (2.0f * ARM_L1 * ARM_L2);
-    if (cosq2 >  1.0f) cosq2 =  1.0f;
-    if (cosq2 < -1.0f) cosq2 = -1.0f;
-
-    sinq2 = sin_sign * sqrtf(1.0f - cosq2 * cosq2);
-    q2v = atan2f(sinq2, cosq2);
-    phi = atan2f(z, x);
-    psi = atan2f(ARM_L2 * sinq2, ARM_L1 + ARM_L2 * cosq2);
-    q1v = wrap_pi(phi - psi);
-    q2v = wrap_pi(q2v);
-
-    if (arm_in_limit(q1v, 1) == 0) { return -1; }
-    if (arm_in_limit(q2v, 2) == 0) { return -1; }
-
-    *q0 = yaw;
-    *q1 = q1v;
-    *q2 = q2v;
-    return 0;
-}
-
-/* Choose the valid IK branch nearest to the current joint angles. */
-int arm_inverse_nearest(float x, float z, float yaw,
-                        float q1_ref, float q2_ref,
-                        float *q0, float *q1, float *q2)
-{
-    float up_q0 = 0.0f, up_q1 = 0.0f, up_q2 = 0.0f;
-    float down_q0 = 0.0f, down_q1 = 0.0f, down_q2 = 0.0f;
-    float e1, e2, up_cost, down_cost;
-    int up_ok, down_ok;
-
-    if ((q0 == 0) || (q1 == 0) || (q2 == 0)) { return -1; }
-
-    up_ok = arm_inverse_branch(x, z, yaw, +1.0f,
-                               &up_q0, &up_q1, &up_q2);
-    down_ok = arm_inverse_branch(x, z, yaw, -1.0f,
-                                 &down_q0, &down_q1, &down_q2);
-
-    if ((up_ok != 0) && (down_ok != 0)) { return -1; }
-    if (up_ok != 0) {
-        *q0 = down_q0; *q1 = down_q1; *q2 = down_q2;
-        return 0;
-    }
-    if (down_ok != 0) {
-        *q0 = up_q0; *q1 = up_q1; *q2 = up_q2;
-        return 0;
-    }
-
-    e1 = wrap_pi(up_q1 - q1_ref);
-    e2 = wrap_pi(up_q2 - q2_ref);
-    up_cost = e1 * e1 + e2 * e2;
-
-    e1 = wrap_pi(down_q1 - q1_ref);
-    e2 = wrap_pi(down_q2 - q2_ref);
-    down_cost = e1 * e1 + e2 * e2;
-
-    if (down_cost <= up_cost) {
-        *q0 = down_q0; *q1 = down_q1; *q2 = down_q2;
-    } else {
-        *q0 = up_q0; *q1 = up_q1; *q2 = up_q2;
-    }
     return 0;
 }

@@ -271,7 +271,6 @@ void arm_init(FDCAN_HandleTypeDef *hfdcan)
     {
         uint32_t now;
 
-        if (hfdcan != NULL) { fdcan_drv_service(hfdcan); }
         arm_send_safe_idle();
         if ((int32_t)(HAL_GetTick() - s_next_el05_enable_ms) >= 0)
         {
@@ -319,7 +318,7 @@ int arm_goto(float x, float z, float yaw)
         return -1;
     }
 
-    if (arm_inverse_nearest(x, z, yaw, s_cur_joint[1], s_cur_joint[2], &q0, &q1, &q2) != 0)
+    if (arm_inverse(x, z, yaw, &q0, &q1, &q2) != 0)
     {
         arm_dbg.last_err = -1;   /* unreachable */
         return -1;
@@ -370,7 +369,6 @@ void arm_run(void)
 //三个关节之间的误差
     float err0, err1, err2;
 //如果初始化失败就返回
-    if (s_hfdcan != NULL) { fdcan_drv_service(s_hfdcan); }
     if (!s_inited) { return; }
 
     now = HAL_GetTick();

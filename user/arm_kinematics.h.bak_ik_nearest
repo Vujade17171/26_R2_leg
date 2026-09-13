@@ -51,10 +51,4 @@ void arm_clamp_joints(float *q0, float *q1, float *q2);
 /* is joint q within limit of index idx (0..2)? */
 int arm_in_limit(float q, int idx);
 
-/* Same IK, but select the elbow branch closest to the current joint
- * angles. This prevents an elbow flip when the arm is already on the
- * negative-q2 branch. Return 0 on success, -1 if no valid branch. */
-int arm_inverse_nearest(float x, float z, float yaw,
-                        float q1_ref, float q2_ref,
-                        float *q0, float *q1, float *q2);
 #endif /* __ARM_KINEMATICS_H */

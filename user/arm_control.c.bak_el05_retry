@@ -62,8 +62,6 @@ static float    s_dt        = 0.01f;
 static uint8_t  s_inited    = 0;
 static uint8_t  s_target_set = 0;   /* 0 until first target command */
 static uint8_t  s_fault     = 0;    /* 1 = safety stop latched */
-static uint32_t s_last_run_ms = 0;
-static uint32_t s_next_el05_enable_ms = 0;
 
 /* live joint state (feedback converted to joint angles) */
 static float s_cur_joint[3] = {0, 0, 0};   /* q0,wrist q1,shoulder q2,elbow */
@@ -204,46 +202,28 @@ static void arm_send_motors(float q0, float q1, float q2,
     float m1 = arm_joint_to_motor_1(q1);
     float m2 = arm_joint_to_motor_2(q2);
 
-    /* Send EL05 first so the two AK frames cannot fill the Tx FIFO and starve it. */
-    if (HAL_FDCAN_GetTxFifoFreeLevel(s_hfdcan) != 0U)
-    {
-        robstride_set_control(s_hfdcan, ARM_M3_ID, 0.0f, q0, v0,
-                              ARM_KP_WRIST, ARM_KD_WRIST);
-    }
     /* motor velocity: dm1/dt = -dq1/dt (shoulder), dm2/dt = +dq2/dt (elbow) */
-    if (HAL_FDCAN_GetTxFifoFreeLevel(s_hfdcan) != 0U)
-    {
-        mit_motor_set_control(s_hfdcan, ARM_M1_ID, m1, -v1,
-                              ARM_KP_SHOULDER, ARM_KD_SHOULDER, 0.0f);
-    }
-    if (HAL_FDCAN_GetTxFifoFreeLevel(s_hfdcan) != 0U)
-    {
-        mit_motor_set_control(s_hfdcan, ARM_M2_ID, m2, v2,
-                              ARM_KP_ELBOW, ARM_KD_ELBOW, 0.0f);
-    }
+    mit_motor_set_control(s_hfdcan, ARM_M1_ID, m1, -v1,
+                          ARM_KP_SHOULDER, ARM_KD_SHOULDER, 0.0f);
+    mit_motor_set_control(s_hfdcan, ARM_M2_ID, m2,  v2,
+                          ARM_KP_ELBOW,    ARM_KD_ELBOW,    0.0f);
+    robstride_set_control(s_hfdcan, ARM_M3_ID, 0.0f, q0, v0,
+                          ARM_KP_WRIST, ARM_KD_WRIST);
 }
 
 /* -------- zero torque/gain frame: solicit feedback without motion -------- */
 static void arm_send_safe_idle(void)
 {
-    if (HAL_FDCAN_GetTxFifoFreeLevel(s_hfdcan) != 0U)
-    {
-        robstride_set_control(s_hfdcan, ARM_M3_ID, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f);
-    }
-    if (HAL_FDCAN_GetTxFifoFreeLevel(s_hfdcan) != 0U)
-    {
-        mit_motor_set_control(s_hfdcan, ARM_M1_ID, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f);
-    }
-    if (HAL_FDCAN_GetTxFifoFreeLevel(s_hfdcan) != 0U)
-    {
-        mit_motor_set_control(s_hfdcan, ARM_M2_ID, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f);
-    }
+    mit_motor_set_control(s_hfdcan, ARM_M1_ID, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f);
+    mit_motor_set_control(s_hfdcan, ARM_M2_ID, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f);
+    robstride_set_control(s_hfdcan, ARM_M3_ID, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f);
 }
 
 /* -------- public: init (wait for valid feedback, then HOLD) -------- */
 void arm_init(FDCAN_HandleTypeDef *hfdcan)
 {
     uint32_t deadline;
+    uint32_t next_el05_enable;
 
     s_hfdcan  = hfdcan;
     s_inited  = 0U;
@@ -260,26 +240,21 @@ void arm_init(FDCAN_HandleTypeDef *hfdcan)
     }
 
     /* Enable, but keep zero gain/torque until all three positions are known. */
-    HAL_Delay(800U);
     mit_motor_enable(hfdcan, ARM_M1_ID);
     mit_motor_enable(hfdcan, ARM_M2_ID);
     robstride_enable(hfdcan, ARM_M3_ID);
-    s_next_el05_enable_ms = HAL_GetTick() + ARM_EL05_ENABLE_RETRY_MS;
+    next_el05_enable = HAL_GetTick() + ARM_EL05_ENABLE_RETRY_MS;
 
     deadline = HAL_GetTick() + ARM_STARTUP_TIMEOUT_MS;
     for (;;)
     {
         uint32_t now;
 
-        if (hfdcan != NULL) { fdcan_drv_service(hfdcan); }
         arm_send_safe_idle();
-        if ((int32_t)(HAL_GetTick() - s_next_el05_enable_ms) >= 0)
+        if ((int32_t)(HAL_GetTick() - next_el05_enable) >= 0)
         {
-            if (HAL_FDCAN_GetTxFifoFreeLevel(hfdcan) != 0U)
-            {
-                robstride_enable(hfdcan, ARM_M3_ID);
-            }
-            s_next_el05_enable_ms = HAL_GetTick() + ARM_EL05_ENABLE_RETRY_MS;
+            robstride_enable(hfdcan, ARM_M3_ID);
+            next_el05_enable = HAL_GetTick() + ARM_EL05_ENABLE_RETRY_MS;
         }
         arm_refresh_feedback();
         now = HAL_GetTick();
@@ -303,7 +278,6 @@ void arm_init(FDCAN_HandleTypeDef *hfdcan)
     arm_dbg.mode     = arm_cmd_mode;
     arm_dbg.reached  = 0U;
     arm_dbg.last_err = 0;
-    s_last_run_ms = HAL_GetTick();
     s_fault  = 0U;
     s_inited = 1U;
 }
@@ -319,7 +293,7 @@ int arm_goto(float x, float z, float yaw)
         return -1;
     }
 
-    if (arm_inverse_nearest(x, z, yaw, s_cur_joint[1], s_cur_joint[2], &q0, &q1, &q2) != 0)
+    if (arm_inverse(x, z, yaw, &q0, &q1, &q2) != 0)
     {
         arm_dbg.last_err = -1;   /* unreachable */
         return -1;
@@ -370,21 +344,9 @@ void arm_run(void)
 //三个关节之间的误差
     float err0, err1, err2;
 //如果初始化失败就返回
-    if (s_hfdcan != NULL) { fdcan_drv_service(s_hfdcan); }
     if (!s_inited) { return; }
 
     now = HAL_GetTick();
-    if ((uint32_t)(now - s_last_run_ms) < 10U) { return; }
-    s_last_run_ms = now;
-
-    if ((int32_t)(now - s_next_el05_enable_ms) >= 0)
-    {
-        if (HAL_FDCAN_GetTxFifoFreeLevel(s_hfdcan) != 0U)
-        {
-            robstride_enable(s_hfdcan, ARM_M3_ID);
-        }
-        s_next_el05_enable_ms = now + ARM_EL05_ENABLE_RETRY_MS;
-    }
 //上一次run执行的时间
     if (s_last_tick) { s_dt = (float)(now - s_last_tick) * 0.001f; }
     s_last_tick = now;
