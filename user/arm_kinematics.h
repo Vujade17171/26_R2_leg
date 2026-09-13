@@ -1,13 +1,13 @@
 /**
   ******************************************************************************
   * @file    arm_kinematics.h
-  * @brief   Planar 2R arm kinematics (inverse / reachability / joint-motor map)
+  * @brief   平面二连杆机械臂运动学（逆运动学 / 可达性判断 / 关节-电机角度映射）
   ******************************************************************************
-  * Description:
-  *   - XZ-plane 2R inverse kinematics (elbow-up branch).
-  *   - Joint<->motor angle conversion using config offsets (reference project).
-  *   - Joint limit table (reference project parameters).
-  *   - q0 = wrist (yaw), q1 = shoulder(da bi), q2 = elbow(xiao bi).
+  * 说明：
+  *   - XZ 平面二连杆逆运动学（肘部构型选择）。
+  *   - 使用配置零点偏移进行机械臂关节角与电机角之间的转换。
+  *   - 保存三个关节的限位参数（参考工程参数）。
+  *   - q0 = 腕关节（偏航），q1 = 肩关节，q2 = 肘关节。
   ******************************************************************************
   */
 #ifndef __ARM_KINEMATICS_H
@@ -15,11 +15,11 @@
 
 #include <stdint.h>
 
-#define ARM_L1  0.35f   /* upper arm length (m)  */
-#define ARM_L2  0.25f   /* forearm length (m)    */
-#define ARM_L3  0.10f   /* wrist/link end (m)    */
+#define ARM_L1  0.35f   /* 大臂长度（m） */
+#define ARM_L2  0.25f   /* 小臂长度（m） */
+#define ARM_L3  0.10f   /* 腕部/末端连杆长度（m，当前逆运动学未使用） */
 
-/* joint limit table (q0=wrist, q1=shoulder, q2=elbow) */
+/* 关节限位表（q0=腕关节，q1=肩关节，q2=肘关节） */
 typedef struct
 {
     float q_min[3];
@@ -28,32 +28,29 @@ typedef struct
 
 extern arm_joint_limit_t g_arm_joint_limit;
 
-/* joint angle -> motor angle (includes direction/offset) */
-float arm_joint_to_motor_1(float q1);   /* shoulder */
-float arm_joint_to_motor_2(float q2);   /* elbow   */
+/* 机械臂关节角 -> 电机角（包含方向和零点偏移） */
+float arm_joint_to_motor_1(float q1);   /* 肩关节 */
+float arm_joint_to_motor_2(float q2);   /* 肘关节 */
 
-/* motor angle -> joint angle (for feedback display) */
+/* 电机角 -> 机械臂关节角（用于反馈显示） */
 float arm_motor_to_joint_1(float m1);
 float arm_motor_to_joint_2(float m2);
 
-/* reachability check: return 0 if (x,z) reachable, -1 otherwise */
+/* 正运动学：由前两轴 q1/q2 计算腕关节中心 (x,z)，不包含末端 L3。 */
+void arm_forward(float q1, float q2, float *x, float *z);
+
+/* 可达性判断：目标点 (x,z) 可达返回 0，不可达返回 -1 */
 int arm_reachable(float x, float z);
 
-/* planar 2R IK (elbow-up). Input: x,z in meters, yaw in rad (wrist).
- * Output: q0=yaw, q1=shoulder, q2=elbow (rad).
- * Return 0 on success, -1 if unreachable. */
-int arm_inverse(float x, float z, float yaw,
-                float *q0, float *q1, float *q2);
-
-/* clamp joint angles in place */
+/* 将三个关节角限制到各自的上下限内 */
 void arm_clamp_joints(float *q0, float *q1, float *q2);
 
-/* is joint q within limit of index idx (0..2)? */
+/* 判断关节角 q 是否在编号 idx（0~2）对应的限位内 */
 int arm_in_limit(float q, int idx);
 
-/* Same IK, but select the elbow branch closest to the current joint
- * angles. This prevents an elbow flip when the arm is already on the
- * negative-q2 branch. Return 0 on success, -1 if no valid branch. */
+/* 逆运动学求解：同时计算两种肘部构型，并选择最接近当前关节角
+ * 且满足限位的一组解。该方式可避免机械臂运动时突然翻肘。
+ * 成功返回 0，两种构型都无有效解时返回 -1。 */
 int arm_inverse_nearest(float x, float z, float yaw,
                         float q1_ref, float q2_ref,
                         float *q0, float *q1, float *q2);

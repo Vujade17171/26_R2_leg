@@ -35,6 +35,8 @@ typedef struct
 {
     arm_joint_dbg_t joint[ARM_MOTOR_NUM];  /* [0]=shoulder, [1]=elbow, [2]=wrist */
     float x, z, yaw;                      /* current cartesian target            */
+    float x_actual;                       /* wrist-centre x from forward kinematics */
+    float z_actual;                       /* wrist-centre z from forward kinematics */
     uint8_t mode;                         /* 0=joint, 1=cartesian                */
     uint8_t reached;                      /* 1 = end-effector at target          */
     int16_t last_err;                     /* 0=ok, -1=unreachable, else code     */

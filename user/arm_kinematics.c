@@ -13,8 +13,8 @@
 #endif
 
 /* motor zero offsets (reference project) */
-#define OFFSET_DOWN   3.141593f    /* 肩关节电机偏移*/
-#define OFFSET_UP    -2.6511548f   /* 肘关节电机偏移*/
+#define OFFSET_DOWN   0.300000f    /* 肩关节电机偏移*/
+#define OFFSET_UP    1.900000f   /* 肘关节电机偏移*/
 
 
 //三个关节电机限位
@@ -39,12 +39,28 @@ static inline float wrap_pi(float a)
 }
 
 /* joint -> motor */
-float arm_joint_to_motor_1(float q1) { return OFFSET_DOWN - q1; }
+float arm_joint_to_motor_1(float q1) { return q1 + OFFSET_DOWN; }
 float arm_joint_to_motor_2(float q2) { return q2 - OFFSET_UP;   }
 
 /* motor -> joint */
-float arm_motor_to_joint_1(float m1) { return OFFSET_DOWN - m1; }
+float arm_motor_to_joint_1(float m1) { return m1 - OFFSET_DOWN; }
 float arm_motor_to_joint_2(float m2) { return m2 + OFFSET_UP;   }
+
+/* Forward kinematics: wrist-centre position from q1/q2 (L1/L2 only). */
+void arm_forward(float q1, float q2, float *x, float *z)
+{
+    float q12 = q1 + q2;
+
+    if (x != NULL)
+    {
+        *x = ARM_L1 * cosf(q1) + ARM_L2 * cosf(q12);
+    }
+
+    if (z != NULL)
+    {
+        *z = ARM_L1 * sinf(q1) + ARM_L2 * sinf(q12);
+    }
+}
 
 
 //检查电机是否在限位内
@@ -74,37 +90,6 @@ int arm_reachable(float x, float z)
     return 0;
 }
 
-
-//输入坐标，输出角度
-int arm_inverse(float x, float z, float yaw,
-                float *q0, float *q1, float *q2)
-{
-    float D2, cosq2, sinq2, q2v, phi, psi, q1v;
-
-    if (!q0 || !q1 || !q2) { return -1; }
-    if (arm_reachable(x, z) != 0) { return -1; }
-
-    D2 = x * x + z * z;
-    cosq2 = (D2 - ARM_L1 * ARM_L1 - ARM_L2 * ARM_L2) / (2.0f * ARM_L1 * ARM_L2);
-    if (cosq2 >  1.0f) cosq2 =  1.0f;
-    if (cosq2 < -1.0f) cosq2 = -1.0f;
-    sinq2 = sqrtf(1.0f - cosq2 * cosq2);
-    q2v   = atan2f(sinq2, cosq2);            /* elbow-up branch */
-
-    phi = atan2f(z, x);
-    psi = atan2f(ARM_L2 * sinq2, ARM_L1 + ARM_L2 * cosq2);
-    q1v = phi - psi;
-
-    q1v = wrap_pi(q1v);
-    q2v = wrap_pi(q2v);
-
-    arm_clamp_joints(&yaw, &q1v, &q2v);
-
-    *q0 = yaw;
-    *q1 = q1v;
-    *q2 = q2v;
-    return 0;
-}
 
 /* Solve one elbow branch. sin_sign = +1: elbow-up, -1: elbow-down. */
 static int arm_inverse_branch(float x, float z, float yaw, float sin_sign,

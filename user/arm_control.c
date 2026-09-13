@@ -195,6 +195,10 @@ static void arm_refresh_feedback(void)
         arm_dbg.joint[2].pattern = st3->pattern;
         arm_dbg.joint[2].sign    = +1;
     }
+
+    /* Forward kinematics: current wrist centre, L1/L2 only. */
+    arm_forward(s_cur_joint[1], s_cur_joint[2],
+                &arm_dbg.x_actual, &arm_dbg.z_actual);
 }
 
 /* -------- send control to the 3 motors -------- */
@@ -210,10 +214,10 @@ static void arm_send_motors(float q0, float q1, float q2,
         robstride_set_control(s_hfdcan, ARM_M3_ID, 0.0f, q0, v0,
                               ARM_KP_WRIST, ARM_KD_WRIST);
     }
-    /* motor velocity: dm1/dt = -dq1/dt (shoulder), dm2/dt = +dq2/dt (elbow) */
+    /* motor velocity: dm1/dt = +dq1/dt (shoulder), dm2/dt = +dq2/dt (elbow) */
     if (HAL_FDCAN_GetTxFifoFreeLevel(s_hfdcan) != 0U)
     {
-        mit_motor_set_control(s_hfdcan, ARM_M1_ID, m1, -v1,
+        mit_motor_set_control(s_hfdcan, ARM_M1_ID, m1, v1,
                               ARM_KP_SHOULDER, ARM_KD_SHOULDER, 0.0f);
     }
     if (HAL_FDCAN_GetTxFifoFreeLevel(s_hfdcan) != 0U)
