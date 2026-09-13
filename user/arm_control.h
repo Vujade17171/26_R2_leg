@@ -37,8 +37,6 @@ typedef struct
     float x, z, yaw;                      /* current cartesian target            */
     float x_actual;                       /* wrist-centre x from forward kinematics */
     float z_actual;                       /* wrist-centre z from forward kinematics */
-    float x_tool_actual;                  /* tool-tip x from forward kinematics */
-    float z_tool_actual;                  /* tool-tip z from forward kinematics */
     uint8_t mode;                         /* 0=joint, 1=cartesian                */
     uint8_t reached;                      /* 1 = end-effector at target          */
     int16_t last_err;                     /* 0=ok, -1=unreachable, else code     */
@@ -55,6 +53,5 @@ void arm_init(FDCAN_HandleTypeDef *hfdcan);
 void arm_run(void);                 /* call every ~10 ms */
 void arm_set_joint(float q0, float q1, float q2);
 int  arm_goto(float x, float z, float yaw);
-int  arm_goto_tool(float x_tool, float z_tool, float tool_angle);
 
 #endif /* __ARM_CONTROL_H */

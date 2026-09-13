@@ -17,7 +17,6 @@
 
 #define ARM_L1  0.35f   /* 大臂长度（m） */
 #define ARM_L2  0.25f   /* 小臂长度（m） */
-#define ARM_L3  0.10f   /* 腕部/末端连杆长度（m，当前逆运动学未使用） */
 
 /* 关节限位表（q0=腕关节，q1=肩关节，q2=肘关节） */
 typedef struct
@@ -44,15 +43,6 @@ int arm_reachable(float x, float z);
 
 /* 将三个关节角限制到各自的上下限内 */
 void arm_clamp_joints(float *q0, float *q1, float *q2);
-
-/* Forward kinematics including the wrist link L3. */
-void arm_forward_tool(float q0, float q1, float q2,
-                      float *x_tool, float *z_tool);
-
-/* Inverse kinematics for the tool tip. tool_angle is the absolute angle of L3. */
-int arm_inverse_tool_nearest(float x_tool, float z_tool, float tool_angle,
-                             float q1_ref, float q2_ref,
-                             float *q0, float *q1, float *q2);
 
 /* 判断关节角 q 是否在编号 idx（0~2）对应的限位内 */
 int arm_in_limit(float q, int idx);
