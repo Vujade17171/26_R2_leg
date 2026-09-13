@@ -45,6 +45,15 @@ int arm_reachable(float x, float z);
 /* 将三个关节角限制到各自的上下限内 */
 void arm_clamp_joints(float *q0, float *q1, float *q2);
 
+/* Forward kinematics including the wrist link L3. */
+void arm_forward_tool(float q0, float q1, float q2,
+                      float *x_tool, float *z_tool);
+
+/* Inverse kinematics for the tool tip. tool_angle is the absolute angle of L3. */
+int arm_inverse_tool_nearest(float x_tool, float z_tool, float tool_angle,
+                             float q1_ref, float q2_ref,
+                             float *q0, float *q1, float *q2);
+
 /* 判断关节角 q 是否在编号 idx（0~2）对应的限位内 */
 int arm_in_limit(float q, int idx);
 

@@ -60,6 +60,19 @@ void arm_forward(float q1, float q2, float *x, float *z)
     {
         *z = ARM_L1 * sinf(q1) + ARM_L2 * sinf(q12);
     }
+
+}
+
+void arm_forward_tool(float q0, float q1, float q2,
+                      float *x_tool, float *z_tool)
+{
+    float x, z, q012;
+
+    arm_forward(q1, q2, &x, &z);
+    q012 = q0 + q1 + q2;
+
+    if (x_tool != NULL) { *x_tool = x + ARM_L3 * cosf(q012); }
+    if (z_tool != NULL) { *z_tool = z + ARM_L3 * sinf(q012); }
 }
 
 
@@ -163,5 +176,28 @@ int arm_inverse_nearest(float x, float z, float yaw,
     } else {
         *q0 = up_q0; *q1 = up_q1; *q2 = up_q2;
     }
+    return 0;
+}
+
+/* Tool-tip IK: subtract L3 to get the wrist centre, then solve 2R IK. */
+int arm_inverse_tool_nearest(float x_tool, float z_tool, float tool_angle,
+                             float q1_ref, float q2_ref,
+                             float *q0, float *q1, float *q2)
+{
+    float xw, zw, q0v, q1v, q2v;
+
+    if ((q0 == NULL) || (q1 == NULL) || (q2 == NULL)) { return -1; }
+
+    tool_angle = wrap_pi(tool_angle);
+    xw = x_tool - ARM_L3 * cosf(tool_angle);
+    zw = z_tool - ARM_L3 * sinf(tool_angle);
+
+    if (arm_inverse_nearest(xw, zw, 0.0f, q1_ref, q2_ref,
+                            &q0v, &q1v, &q2v) != 0) { return -1; }
+
+    q0v = wrap_pi(tool_angle - q1v - q2v);
+    if (arm_in_limit(q0v, 0) == 0) { return -1; }
+
+    *q0 = q0v; *q1 = q1v; *q2 = q2v;
     return 0;
 }

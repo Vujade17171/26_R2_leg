@@ -199,6 +199,8 @@ static void arm_refresh_feedback(void)
     /* Forward kinematics: current wrist centre, L1/L2 only. */
     arm_forward(s_cur_joint[1], s_cur_joint[2],
                 &arm_dbg.x_actual, &arm_dbg.z_actual);
+    arm_forward_tool(s_cur_joint[0], s_cur_joint[1], s_cur_joint[2],
+                     &arm_dbg.x_tool_actual, &arm_dbg.z_tool_actual);
 }
 
 /* -------- send control to the 3 motors -------- */
@@ -341,6 +343,40 @@ int arm_goto(float x, float z, float yaw)
     return 0;
 }
 
+/* -------- public: goto tool-tip cartesian target -------- */
+int arm_goto_tool(float x_tool, float z_tool, float tool_angle)
+{
+    float q0, q1, q2;
+
+    if ((s_inited == 0U) || (s_fault != 0U))
+    {
+        arm_dbg.last_err = -2;
+        return -1;
+    }
+
+    if (arm_inverse_tool_nearest(x_tool, z_tool, tool_angle,
+                                 s_cur_joint[1], s_cur_joint[2],
+                                 &q0, &q1, &q2) != 0)
+    {
+        arm_dbg.last_err = -1;
+        return -1;
+    }
+
+    arm_traj_start(s_cur_joint[0], s_cur_joint[1], s_cur_joint[2],
+                   q0, q1, q2, ARM_TRAJ_TIME);
+    s_tgt_joint[0] = q0;
+    s_tgt_joint[1] = q1;
+    s_tgt_joint[2] = q2;
+    s_target_set = 1;
+    arm_dbg.last_err = 0;
+    arm_dbg.reached = 0;
+    arm_dbg.x = x_tool;
+    arm_dbg.z = z_tool;
+    arm_dbg.yaw = tool_angle;
+    arm_dbg.mode = 2;
+    return 0;
+}
+
 /* -------- public: goto joint target -------- */
 void arm_set_joint(float q0, float q1, float q2)
 {
@@ -407,7 +443,11 @@ void arm_run(void)
     if (arm_cmd_new)
     {
         arm_cmd_new = 0;
-        if (arm_cmd_mode == 1)
+        if (arm_cmd_mode == 2)
+        {
+            arm_goto_tool(arm_target[0], arm_target[1], arm_target[2]);
+        }
+        else if (arm_cmd_mode == 1)
         {
             arm_goto(arm_target[0], arm_target[1], arm_target[2]);
         }
