@@ -701,6 +701,16 @@
               <FileType>5</FileType>
               <FilePath>..\user\arm_traj.h</FilePath>
             </File>
+            <File>
+              <FileName>arm_gravity.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\user\arm_gravity.c</FilePath>
+            </File>
+            <File>
+              <FileName>arm_gravity.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\user\arm_gravity.h</FilePath>
+            </File>
           </Files>
         </Group>
         <Group>
