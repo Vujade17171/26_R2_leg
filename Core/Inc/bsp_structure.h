@@ -131,6 +131,16 @@ typedef struct {
     int   success;
 } LegMotion_t;
 
+/* ==================== 时间结构体 ==================== */
+/* 由 DWT_SysTimeUpdate() 刷新，s/ms/us 分别表示秒/毫秒/微秒。
+ * 例如 SysTime.s=12, SysTime.ms=345, SysTime.us=678 表示 12.345678 秒。 */
+typedef struct {
+    uint64_t s;   /* 秒 */
+    uint32_t ms;  /* 毫秒（0~999） */
+    uint32_t us;  /* 微秒（0~999） */
+} DWT_Time_t;
+
+
 /* ==================== 五次多项式轨迹规划句柄 ==================== */
 /**
  * @brief  关节空间五次多项式轨迹规划句柄。

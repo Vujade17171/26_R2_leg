@@ -706,6 +706,16 @@
               <FileType>5</FileType>
               <FilePath>..\Core\Inc\bsp_structure.h</FilePath>
             </File>
+            <File>
+              <FileName>bsp_dwt.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Core\Src\bsp_dwt.c</FilePath>
+            </File>
+            <File>
+              <FileName>bsp_dwt.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\Core\Inc\bsp_dwt.h</FilePath>
+            </File>
           </Files>
         </Group>
         <Group>
@@ -1450,6 +1460,16 @@
               <FileName>Control_pos.h</FileName>
               <FileType>5</FileType>
               <FilePath>..\Core\Inc\Control_pos.h</FilePath>
+            </File>
+            <File>
+              <FileName>Control_torque.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Core\Src\Control_torque.c</FilePath>
+            </File>
+            <File>
+              <FileName>Control_torque.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\Core\Inc\Control_torque.h</FilePath>
             </File>
           </Files>
         </Group>

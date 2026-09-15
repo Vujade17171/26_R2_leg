@@ -185,3 +185,25 @@ HAL_StatusTypeDef EL05_Motion_Control(EL05_Handle_t *el05, float position, float
 
     return can_send_ext_data(el05->pcan_handle, ext_id, data, 8);
 }
+
+/* ==================== 保持末端水平指向 -x ==================== */
+/*
+ * 作用：根据大小臂的关节角，计算 EL05 的目标角，使末端执行器（吸盘）
+ *       始终平行于 x 轴并指向 -x 方向（即末端绝对角恒等于 π）。
+ *
+ * 推导：末端绝对角 abs = q12 + EL05_DIR * (θ - EL05_OFFSET)
+ *       其中 q12 = q1 + q2 为小臂绝对角，θ 为 EL05 反馈角。
+ *       EL05 反装（EL05_DIR=-1），且零位有 0.07 rad 偏移。
+ *       令 abs = π，反解目标角：θ = EL05_OFFSET + EL05_DIR * (π - q12)。
+ *
+ * 入参：
+ *   q1 —— 大臂绝对角 (rad)，相对 +x 轴
+ *   q2 —— 小臂相对角 (rad)，相对大臂
+ * 返回：EL05 目标角 (rad)，可直接下发给 EL05_Motion_Control 的 position。
+ */
+float EL05_Calc_Horizontal_Angle(float q1, float q2)
+{
+    float q12 = q1 + q2;   /* 小臂绝对角 */
+    /* abs = q12 + EL05_DIR*(θ - EL05_OFFSET) 恒等于 π，反解 θ */
+    return EL05_OFFSET + EL05_DIR * (EL05_HORIZONTAL_ABS_ANGLE - q12);
+}

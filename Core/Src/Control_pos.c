@@ -91,7 +91,8 @@ void Forward_Kinematics(leg_pos_t *my_pos)
     pos.z = L1 * sinf(q1) + L2 * sinf(q12);
 
     /* 3. 算"末端落点"（再往外延伸 L3 那一段） */
-    float abs_angle = q12 + g_el05.status.position; /* 末端绝对姿态角 */
+    /* EL05 反装（EL05_DIR=-1）且零位偏移 EL05_OFFSET=0.07，末端绝对角需按此换算 */
+    float abs_angle = q12 + EL05_DIR * (g_el05.status.position - EL05_OFFSET);/* 末端绝对姿态角 */
 
     /*    末端 = 腕部 + L3 沿 abs_angle 方向的偏移 */
     pos.x_s = pos.x + L3 * cosf(abs_angle);
@@ -298,8 +299,8 @@ int leg_inverse(const leg_pos_t *leg_pos, int elbow_up)
     /* EL05 腕部电机暂保持当前姿态，需要改姿态时外部单独设置 */
     leg_motion.motor3_target_angle = g_el05.status.position;
 
-    /* 末端绝对姿态 = 大臂 + 小臂 + 腕部 */
-    leg_motion.yaw_target_angle = best_q1 + best_q2 + g_el05.status.position;
+    /* 末端绝对姿态 = 小臂绝对角 + EL05（含反装与零位换算） */
+    leg_motion.yaw_target_angle = best_q1 + best_q2 + EL05_DIR * (g_el05.status.position - EL05_OFFSET);
 
     leg_motion.success = 0;
     return 0;
@@ -352,7 +353,7 @@ int Inverse_Kinematics_EE(leg_pos_t *my_pos, int elbow_up)
         /* 没指定就用当前末端姿态，保证动作连续 */
         abs_angle = motor1_to_joint(g_ak80.status.position)    /* 已减零偏、方向换算 */
                   + motor2_to_joint(g_ak45.status.position)   /* AK45 已减零偏、方向换算 */
-                  + g_el05.status.position;                    /* EL05 无方向系数，直接读 */
+                  + EL05_DIR * (g_el05.status.position - EL05_OFFSET);  /* EL05 含反装与零位 */
     }
 
     /* 末端目标 → 腕部目标：往回减掉 L3 那一段 */

@@ -14,6 +14,7 @@
 typedef enum {
     MODE_ZERO     = 0,   /* 模式1：全归零，用于判断正解算与关节零点偏移 */
     MODE_POSITION = 1,   /* 模式2：末端位置控制（逆解算 + 五次多项式） */
+    MODE_TORQUE   = 2,   /* 模式3：纯力矩重力补偿（零力拖动测试） */
 } control_mode_t;
 
 /* ==================== 末端位置控制指令（debug 中填写） ==================== */
@@ -25,7 +26,7 @@ typedef struct {
 } pos_cmd_t;
 
 /* ==================== 全局控制变量（debug 中修改） ==================== */
-extern volatile control_mode_t g_ctrl_mode;    /* 当前模式：0=归零，1=末端位置控制 */
+extern volatile control_mode_t g_ctrl_mode;    /* 当前模式：0=归零，1=位置控制，2=纯力矩重力补偿 */
 extern volatile int            g_cmd_trigger;  /* 置 1 = 触发一次新的位置规划 */
 extern pos_cmd_t               g_pos_cmd;      /* 位置控制指令 */
 
