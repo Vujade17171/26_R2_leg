@@ -5,9 +5,8 @@
   ******************************************************************************
   * Description:
   *   - Target inputs are modified in Keil debug via volatile variables:
-  *       arm_cmd_mode = 0 -> joint space, arm_target[0..2] = (q0,q1,q2)
-  *       arm_cmd_mode = 1 -> cartesian,  arm_target[0..2] = (x,z,yaw)
-  *       arm_cmd_new  = 1 -> execute the new target.
+  *       arm_target[0..2] = (x,z,yaw), unit: m, m, rad
+  *       arm_cmd_new  = 1 -> execute the new cartesian target.
   *   - arm_dbg gives live feedback for the Watch window.
   ******************************************************************************
   */
@@ -37,7 +36,7 @@ typedef struct
     float x, z, yaw;                      /* current cartesian target            */
     float x_actual;                       /* wrist-centre x from forward kinematics */
     float z_actual;                       /* wrist-centre z from forward kinematics */
-    uint8_t mode;                         /* 0=joint, 1=cartesian                */
+    uint8_t mode;                         /* 1=cartesian                         */
     uint8_t gravity_test;                 /* 0=off, 3=shoulder+elbow               */
     uint8_t reached;                      /* 1 = end-effector at target          */
     int16_t last_err;                     /* 0=ok, -1=unreachable, else code     */
@@ -45,9 +44,17 @@ typedef struct
 
 extern arm_dbg_t arm_dbg;
 
+/* Cartesian position error: target - forward-kinematics actual, unit m. */
+typedef struct
+{
+    float x;      /* target x - actual x, unit m */
+    float z;      /* target z - actual z, unit m */
+} arm_xy_error_dbg_t;
+
+extern arm_xy_error_dbg_t arm_xy_err;
+
 /* Keil-debug input variables (modify these in Watch window) */
-extern volatile uint8_t  arm_cmd_mode;    /* 0=joint  1=cartesian */
-extern volatile float    arm_target[3];   /* joint:(q0,q1,q2)  cart:(x,z,yaw) */
+extern volatile float    arm_target[3];   /* cart:(x,z,yaw) */
 extern volatile uint8_t  arm_cmd_new;     /* set 1 to run new target */
 /* 重力测试：0=关闭，3=肩、肘同时测试。 */
 extern volatile uint8_t  arm_gravity_test;
@@ -55,7 +62,6 @@ extern volatile uint8_t  arm_gravity_hold_enable;
 
 void arm_init(FDCAN_HandleTypeDef *hfdcan);
 void arm_run(void);                 /* call every ~10 ms */
-void arm_set_joint(float q0, float q1, float q2);
 int  arm_goto(float x, float z, float yaw);
 
 #endif /* __ARM_CONTROL_H */

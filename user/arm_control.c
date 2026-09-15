@@ -53,10 +53,12 @@ extern FDCAN_HandleTypeDef hfdcan1;
 
 /* ---- debug globals (watch in Keil) ---- */
 arm_dbg_t arm_dbg = {0};
-volatile uint8_t  arm_cmd_mode = 1;                       /* ¿ØÖÆÄ£Ê½ */
-volatile float    arm_target[3] = {0.20f, 0.30f, 0.0f};  /* x,z,yaw */
+arm_xy_error_dbg_t arm_xy_err = {0};
+volatile float    arm_target[3] = {0.35f, 0.25f, 0.0f};  /* x,z,yaw */
 volatile uint8_t  arm_cmd_new  = 0;
-volatile uint8_t  arm_gravity_test = 3U;
+
+volatile uint8_t  arm_gravity_test = 0U;
+
 volatile uint8_t  arm_gravity_hold_enable = 0;
 
 static FDCAN_HandleTypeDef *s_hfdcan = NULL;
@@ -160,6 +162,13 @@ static void arm_fail_safe(void)
     arm_dbg.last_err = -2;
 }
 
+/* -------- update Cartesian position error -------- */
+static void arm_update_xy_error(void)
+{
+    arm_xy_err.x = arm_dbg.x - arm_dbg.x_actual;
+    arm_xy_err.z = arm_dbg.z - arm_dbg.z_actual;
+}
+
 /* -------- read feedback and convert motor angle -> joint angle -------- */
 static void arm_refresh_feedback(void)
 {
@@ -204,6 +213,7 @@ static void arm_refresh_feedback(void)
     /* Forward kinematics: current wrist centre, L1/L2 only. */
     arm_forward(s_cur_joint[1], s_cur_joint[2],
                 &arm_dbg.x_actual, &arm_dbg.z_actual);
+    arm_update_xy_error();
 }
 
 /* -------- send control to the 3 motors -------- */
@@ -384,9 +394,12 @@ void arm_init(FDCAN_HandleTypeDef *hfdcan)
     s_tgt_joint[0] = s_cur_joint[0];
     s_tgt_joint[1] = s_cur_joint[1];
     s_tgt_joint[2] = s_cur_joint[2];
+    arm_dbg.x = arm_dbg.x_actual;
+    arm_dbg.z = arm_dbg.z_actual;
+    arm_update_xy_error();
     s_target_set   = 0U;
 
-    arm_dbg.mode         = arm_cmd_mode;
+    arm_dbg.mode         = 1U;
     arm_dbg.gravity_test = 0U;
     arm_dbg.reached      = 0U;
     arm_dbg.last_err = 0;
@@ -422,27 +435,6 @@ int arm_goto(float x, float z, float yaw)
     arm_dbg.x = x; arm_dbg.z = z; arm_dbg.yaw = yaw;
     arm_dbg.mode = 1;
     return 0;
-}
-
-/* -------- public: goto joint target -------- */
-void arm_set_joint(float q0, float q1, float q2)
-{
-    if ((s_inited == 0U) || (s_fault != 0U))
-    {
-        arm_dbg.last_err = -2;
-        return;
-    }
-
-    arm_clamp_joints(&q0, &q1, &q2);
-    arm_traj_start(s_cur_joint[0], s_cur_joint[1], s_cur_joint[2],
-                   q0, q1, q2, ARM_TRAJ_TIME);
-    s_tgt_joint[0] = q0;
-    s_tgt_joint[1] = q1;
-    s_tgt_joint[2] = q2;
-    s_target_set   = 1;
-    arm_dbg.mode   = 0;
-    arm_dbg.reached = 0;
-    arm_dbg.last_err = 0;
 }
 
 /* -------- public: periodic run (~10 ms) -------- */
@@ -505,14 +497,7 @@ void arm_run(void)
     if (arm_cmd_new)
     {
         arm_cmd_new = 0;
-        if (arm_cmd_mode == 1)
-        {
-            arm_goto(arm_target[0], arm_target[1], arm_target[2]);
-        }
-        else
-        {
-            arm_set_joint(arm_target[0], arm_target[1], arm_target[2]);
-        }
+        (void)arm_goto(arm_target[0], arm_target[1], arm_target[2]);
     }
 
     /* run trajectory / hold */
