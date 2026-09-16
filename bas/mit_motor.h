@@ -27,7 +27,8 @@ typedef struct
     uint8_t  id;             /* CAN ID == motor ID */
     float    p_min, p_max;   /* position limits rad */
     float    v_min, v_max;   /* velocity limits rad/s */
-    float    t_min, t_max;   /* torque limits Nm */
+    float    t_min, t_max;   /* protocol torque limits Nm */
+    float    t_limit;        /* software total torque limit Nm */
     float    kp_min, kp_max; /* Kp limits */
     float    kd_min, kd_max; /* Kd limits */
     int8_t   sign;           /* +1 normal, -1 reverse direction */
@@ -48,6 +49,7 @@ typedef struct
 
 extern mit_motor_state_t mit_motor_state[MIT_MOTOR_MAX_NUM];
 extern uint32_t          g_mit_motor_n;   /* number of configured motors */
+extern volatile float     mit_motor_torque_limit_scale; /* software total torque limit scale */
 
 /* Init: register the single rx callback on the bus. */
 uint8_t mit_motor_init(FDCAN_HandleTypeDef *hfdcan);

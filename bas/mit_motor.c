@@ -16,6 +16,7 @@
 mit_motor_state_t mit_motor_state[MIT_MOTOR_MAX_NUM] = {0};
 //当前已经添加配置的电机数量
 uint32_t          g_mit_motor_n = 0;
+volatile float     mit_motor_torque_limit_scale = 1.0f;
 
 static mit_motor_cfg_t s_cfg[MIT_MOTOR_MAX_NUM] = {0};
 
@@ -119,6 +120,58 @@ void mit_motor_set_control(FDCAN_HandleTypeDef *hfdcan, uint8_t id,
     if (kd > cfg->kd_max)   kd = cfg->kd_max;
     if (t_ff < cfg->t_min)  t_ff = cfg->t_min;
     if (t_ff > cfg->t_max)  t_ff = cfg->t_max;
+
+    /* Software total-torque limit:
+     * estimate tau = Kp * position_error + Kd * velocity_error + t_ff.
+     * Keep feed-forward first, then reduce Kp/Kd if needed. */
+    {
+        mit_motor_state_t *state = &mit_motor_state[idx];
+        float torque_limit = fabsf(cfg->t_limit) * fabsf(mit_motor_torque_limit_scale);
+        float max_torque = fminf(fabsf(cfg->t_min), fabsf(cfg->t_max));
+
+        if (torque_limit > max_torque) { torque_limit = max_torque; }
+        if (torque_limit < 0.0f) { torque_limit = 0.0f; }
+
+        if (state->online == 0U)
+        {
+            kp = 0.0f;
+            kd = 0.0f;
+            t_ff = 0.0f;
+        }
+        else
+        {
+            float p_err = p_des - state->pos;
+            float v_err = v_des - state->vel;
+            float tau_ff = t_ff;
+            float tau_fb;
+            float abs_fb;
+            float available;
+
+            if (tau_ff > torque_limit) { tau_ff = torque_limit; }
+            if (tau_ff < -torque_limit) { tau_ff = -torque_limit; }
+
+            tau_fb = kp * p_err + kd * v_err;
+            abs_fb = fabsf(tau_fb);
+            available = torque_limit - fabsf(tau_ff);
+            if (available < 0.0f) { available = 0.0f; }
+
+            if (abs_fb > available)
+            {
+                if (abs_fb > 0.0001f)
+                {
+                    kp *= available / abs_fb;
+                    kd *= available / abs_fb;
+                }
+                else
+                {
+                    kp = 0.0f;
+                    kd = 0.0f;
+                }
+            }
+
+            t_ff = tau_ff;
+        }
+    }
 
     /* quantize */
     p_int  = float_to_uint(p_des, cfg->p_min, cfg->p_max, 16);
