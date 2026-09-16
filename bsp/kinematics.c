@@ -15,11 +15,7 @@ static LegLinkParam g_link;
 static float g_q1_prev = 0.0f;
 static float g_q2_prev = 0.0f;
 
-/* 关节限位（rad），按实物机械限位调整 */
-#define JOINT1_MIN  (-1.25663704f)
-#define JOINT1_MAX  ( 3.1415926f)
-#define JOINT2_MIN  (-2.82743334f)
-#define JOINT2_MAX  ( 2.82743334f)
+/* 关节限位（JOINT1_MIN..JOINT2_MAX）已移到 kinematics.h，供外部模块规划阶段校验用 */
 
 #define AK_PI        3.14159265358979f
 #define AK_TWO_PI    6.28318530717959f
@@ -66,20 +62,32 @@ static float ang_diff(float a, float b)
     return wrap_pi(a - b);
 }
 
-/* 关节角是否在限位内（1=q1，2=q2） */
-static int in_limit(float a, int joint)
+/* ================== 关节限位公开接口 ==================
+ * 限位宏在 kinematics.h；本函数是限位判断的【唯一实现】，
+ * IK 内的择优判断也走它，避免限位逻辑出现第二份拷贝。 */
+
+/* 单关节是否在机械限位内（joint = 1 或 2；其它值按 joint 2 处理） */
+int Kinematics_JointInLimit(float q, int joint)
 {
-    if (joint == 1) { return (a >= JOINT1_MIN) && (a <= JOINT1_MAX); }
-    return (a >= JOINT2_MIN) && (a <= JOINT2_MAX);
+    if (joint == 1) { return ((q >= JOINT1_MIN) && (q <= JOINT1_MAX)) ? 1 : 0; }
+    return ((q >= JOINT2_MIN) && (q <= JOINT2_MAX)) ? 1 : 0;
 }
 
-/* 把关节角钳位到限位内 */
-static void clamp_to_joint_limit(float *q1, float *q2)
+/* 把关节角组钳位到限位内；返回 1 = 发生过钳位（调用方可据此清零前馈）。
+ * 注意：规划阶段应"拒绝超限目标"而不是依赖这里钳位——钳位只改位置、不改期望增量，
+ * 会让终点前馈不为 0，从而持续顶着限位出力。 */
+int Kinematics_ClampJoint(LegJointAngles *q)
 {
-    if (*q1 > JOINT1_MAX) { *q1 = JOINT1_MAX; }
-    if (*q1 < JOINT1_MIN) { *q1 = JOINT1_MIN; }
-    if (*q2 > JOINT2_MAX) { *q2 = JOINT2_MAX; }
-    if (*q2 < JOINT2_MIN) { *q2 = JOINT2_MIN; }
+    int clamped = 0;
+
+    if (q == 0) { return 0; }
+
+    if (q->q1 > JOINT1_MAX) { q->q1 = JOINT1_MAX; clamped = 1; }
+    if (q->q1 < JOINT1_MIN) { q->q1 = JOINT1_MIN; clamped = 1; }
+    if (q->q2 > JOINT2_MAX) { q->q2 = JOINT2_MAX; clamped = 1; }
+    if (q->q2 < JOINT2_MIN) { q->q2 = JOINT2_MIN; clamped = 1; }
+
+    return clamped;
 }
 
 /* 初始化：保存连杆参数 */
@@ -150,7 +158,7 @@ int8_t Kinematics_Inverse(const FootPosition *foot, LegJointAngles *q, int elbow
         q1 = wrap_pi(q1);
         q2 = wrap_pi(q2);
 
-        penalty = (in_limit(q1, 1) && in_limit(q2, 2)) ? 0.0f : 10000.0f;
+        penalty = (Kinematics_JointInLimit(q1, 1) && Kinematics_JointInLimit(q2, 2)) ? 0.0f : 10000.0f;
         cost = penalty + fabsf(ang_diff(q1, g_q1_prev))
               + 0.3f * fabsf(ang_diff(q2, g_q2_prev));
 
@@ -163,7 +171,16 @@ int8_t Kinematics_Inverse(const FootPosition *foot, LegJointAngles *q, int elbow
 
     if (best_cost >= 9999.0f) { return -1; }   /* 无满足限位的解 */
 
-    clamp_to_joint_limit(&best_q1, &best_q2);
+    /* 最后保险：越限则钳回（best_cost<9999 已保证在限位内，正常不触发） */
+    {
+        LegJointAngles q_chk;
+        q_chk.q1 = best_q1;
+        q_chk.q2 = best_q2;
+        q_chk.q3 = 0.0f;
+        (void)Kinematics_ClampJoint(&q_chk);
+        best_q1 = q_chk.q1;
+        best_q2 = q_chk.q2;
+    }
 
     g_q1_prev = best_q1;   /* 记录，供下一拍连续性择优 */
     g_q2_prev = best_q2;
@@ -212,14 +229,11 @@ float motor_to_joint_2(float m2) { return m2 - g_offset_up; }
 
 float motor_to_joint_3(float m3) { return -m3 ; }
 
-/* ================= 关节空间限速参数（rad/s，按实测调整） =================
- * 摆动速率上限：每拍指令角最多变化 限速值 × dt。
- *   肩/肘 2.0 rad/s ≈ 115°/s；腕 1.0 rad/s ≈ 57°/s。
+/* ================= 关节空间限速 =================
+ * 限速值（JOINT_RATE_Q1/Q2/Q3_MAX）已移到 kinematics.h，供轨迹规划反推时长用；
+ * 本文件只保留限速器状态与实现。
  * 只限制"期望轨迹"的推进速度：kp≠0 时电机实际摆速≈该上限；
  * 但 kp=0（纯力矩测试）或外力推动时实际速度不受此约束。 */
-#define JOINT_RATE_Q1_MAX   5.0f
-#define JOINT_RATE_Q2_MAX   5.0f
-#define JOINT_RATE_Q3_MAX   1.0f
 
 /* 限速器状态：上一拍限速后的指令关节角 */
 static LegJointAngles g_q_cmd = { 0.0f, 0.0f, 0.0f };

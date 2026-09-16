@@ -21,6 +21,14 @@ extern "C" {
 #define D_L2 0.25f  // 小臂长度
 #define D_L3 0.00f  // 腕部长度(暂时忽略)
 
+/* ================== 关节机械限位（rad，按实物机械限位调整） ==================
+ * 定义放头文件是为了让轨迹规划等外部模块能在"规划阶段"就校验终点是否超限
+ * （超限应拒绝规划，而不是先算完再钳位）。 */
+#define JOINT1_MIN  (-1.25663704f)
+#define JOINT1_MAX  ( 3.1415926f)
+#define JOINT2_MIN  (-2.82743334f)
+#define JOINT2_MAX  ( 2.82743334f)
+
 /* 连杆长度（单位 m）：由机械设计确定，使用前在 Init 中赋值 */
 typedef struct {
     float L1; 
@@ -53,6 +61,15 @@ int8_t Kinematics_Inverse(const FootPosition *foot, LegJointAngles *q, int elbow
 /* 雅可比矩阵：由关节角求 J = [∂x/∂q1 ∂x/∂q2; ∂z/∂q1 ∂z/∂q2] */
 void jacobian_rz(float q1, float q2, float* J11, float* J12, float* J21, float* J22);
 
+/* ================== 关节限位公开接口 ==================
+ * 供轨迹规划等模块在规划阶段校验/钳位用（限位宏见文件开头）。 */
+
+/* 单关节是否在机械限位内：joint = 1 或 2，返回 1=在限位内，0=超限 */
+int Kinematics_JointInLimit(float q, int joint);
+
+/* 把关节角组钳位到限位内；返回 1 = 发生过钳位（调用方可据此清零前馈），0 = 未钳位 */
+int Kinematics_ClampJoint(LegJointAngles *q);
+
 /* ================== 关节角 <-> 电机角 零点/方向换算 ================== */
 
 
@@ -72,7 +89,13 @@ float motor_to_joint_3(float m3);
  * 运控(MIT)模式的协议里只有 p/v/kp/kd/t，没有"速度上限"参数（v 是前馈速度，
  * 配 kd 起阻尼，不是限速指令），所以限速在主控侧做：
  * 限制每拍关节指令角的增量 = 限速值(rad/s) × dt，从而限制电机摆动速率。
- * 限速值在 kinematics.c 顶部的 JOINT_RATE_Q1/Q2/Q3_MAX 里，改那里即可。 */
+ * 限速值在下面这三个宏里，改这里即可。 */
+
+/* 关节限速（rad/s）：肩/肘 5.0 ≈ 286°/s，腕 1.0 ≈ 57°/s
+ * 注意 dt 现在由 DWT 实测（arm_control 实际周期 2ms），所以这组值就是真实的 rad/s 上限 */
+#define JOINT_RATE_Q1_MAX   5.0f
+#define JOINT_RATE_Q2_MAX   5.0f
+#define JOINT_RATE_Q3_MAX   1.0f
 
 /* 期望关节角 -> 每拍增量受限的指令关节角
  *   q_des：IK 解出的期望关节角

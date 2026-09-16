@@ -1503,6 +1503,16 @@
               <FileType>5</FileType>
               <FilePath>..\bsp\kinematics.h</FilePath>
             </File>
+            <File>
+              <FileName>joint_traj.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\bsp\joint_traj.c</FilePath>
+            </File>
+            <File>
+              <FileName>joint_traj.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\bsp\joint_traj.h</FilePath>
+            </File>
           </Files>
         </Group>
         <Group>
