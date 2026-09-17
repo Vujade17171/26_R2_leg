@@ -11,11 +11,17 @@
 #include <string.h>
 
 #define FDCAN_DRV_MAX_RX_CB                 8U
+#define FDCAN_DRV_RECOVER_PERIOD_MS        100U
 
 #define FDCAN_DRV_RX_NOTIFY_ITS \
     (FDCAN_IT_RX_FIFO0_NEW_MESSAGE | \
      FDCAN_IT_RX_FIFO0_FULL | \
      FDCAN_IT_RX_FIFO0_MESSAGE_LOST)
+
+#define FDCAN_DRV_ERROR_NOTIFY_ITS \
+    (FDCAN_IT_ERROR_WARNING | \
+     FDCAN_IT_ERROR_PASSIVE | \
+     FDCAN_IT_BUS_OFF)
 
 typedef struct
 {
@@ -25,6 +31,9 @@ typedef struct
 } fdcan_drv_node_t;
 
 static fdcan_drv_node_t s_rx_cbs[FDCAN_DRV_MAX_RX_CB];
+static volatile uint8_t s_bus_off_pending = 0U;
+static uint32_t         s_last_recover_tick = 0U;
+
 /* Configure filters and interrupt sources. The peripheral must be in READY. */
 static uint8_t fdcan_drv_configure(FDCAN_HandleTypeDef *hfdcan)
 {
@@ -77,6 +86,13 @@ static uint8_t fdcan_drv_configure(FDCAN_HandleTypeDef *hfdcan)
         return 1U;
     }
 
+    if (HAL_FDCAN_ActivateNotification(hfdcan,
+                                       FDCAN_DRV_ERROR_NOTIFY_ITS,
+                                       0U) != HAL_OK)
+    {
+        return 1U;
+    }
+
     return 0U;
 }
 
@@ -87,6 +103,9 @@ uint8_t fdcan_drv_init(FDCAN_HandleTypeDef *hfdcan)
     {
         return 1U;
     }
+
+    s_bus_off_pending   = 0U;
+    s_last_recover_tick = HAL_GetTick();
 
     if (fdcan_drv_configure(hfdcan) != 0U)
     {
@@ -177,6 +196,63 @@ void fdcan_drv_reg_rx_cb(FDCAN_HandleTypeDef *hfdcan, fdcan_rx_cb_t cb)
     }
 }
 
+/* Main-loop service: recover from Bus-Off outside the ISR. */
+void fdcan_drv_service(FDCAN_HandleTypeDef *hfdcan)
+{
+    uint32_t now;
+
+    if (hfdcan == NULL)
+    {
+        return;
+    }
+
+    now = HAL_GetTick();
+
+    if ((hfdcan->Instance->PSR & FDCAN_PSR_BO) != 0U)
+    {
+        if ((uint32_t)(now - s_last_recover_tick) >= FDCAN_DRV_RECOVER_PERIOD_MS)
+        {
+            s_bus_off_pending = 1U;
+        }
+    }
+
+    if (s_bus_off_pending == 0U)
+    {
+        return;
+    }
+
+    if ((uint32_t)(now - s_last_recover_tick) < FDCAN_DRV_RECOVER_PERIOD_MS)
+    {
+        return;
+    }
+
+    s_last_recover_tick = now;
+
+    if (hfdcan->State == HAL_FDCAN_STATE_BUSY)
+    {
+        if (HAL_FDCAN_Stop(hfdcan) != HAL_OK)
+        {
+            return;
+        }
+    }
+    else if (hfdcan->State != HAL_FDCAN_STATE_READY)
+    {
+        return;
+    }
+
+    if (fdcan_drv_configure(hfdcan) != 0U)
+    {
+        return;
+    }
+
+    if (HAL_FDCAN_Start(hfdcan) != HAL_OK)
+    {
+        return;
+    }
+
+    s_bus_off_pending = 0U;
+}
+
 /* HAL weak callback override: drain FIFO0, then dispatch every frame. */
 void HAL_FDCAN_RxFifo0Callback(FDCAN_HandleTypeDef *hfdcan, uint32_t RxFifo0ITs)
 {
@@ -215,5 +291,20 @@ void HAL_FDCAN_RxFifo0Callback(FDCAN_HandleTypeDef *hfdcan, uint32_t RxFifo0ITs)
                 s_rx_cbs[i].cb(hfdcan, &rx_header, rx_data);
             }
         }
+    }
+}
+
+/* HAL weak callback override: mark Bus-Off; recovery runs in service. */
+void HAL_FDCAN_ErrorStatusCallback(FDCAN_HandleTypeDef *hfdcan,
+                                   uint32_t ErrorStatusITs)
+{
+    if (hfdcan == NULL)
+    {
+        return;
+    }
+
+    if ((ErrorStatusITs & FDCAN_IT_BUS_OFF) != 0U)
+    {
+        s_bus_off_pending = 1U;
     }
 }

@@ -25,6 +25,10 @@ uint8_t fdcan_drv_send(FDCAN_HandleTypeDef *hfdcan,
                        uint32_t id, uint32_t id_type,
                        uint8_t *data, uint8_t len);
 
+/* Call periodically from the main loop (10 ms is recommended).
+   It performs Bus-Off recovery outside the ISR. */
+void fdcan_drv_service(FDCAN_HandleTypeDef *hfdcan);
+
 /* Register a receive callback. The same callback is never registered twice. */
 void fdcan_drv_reg_rx_cb(FDCAN_HandleTypeDef *hfdcan, fdcan_rx_cb_t cb);
 

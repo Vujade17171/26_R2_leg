@@ -51,7 +51,12 @@ extern FDCAN_HandleTypeDef hfdcan1;
 #define ARM_FEEDBACK_TIMEOUT_MS  200U
 #define ARM_TEMP_LIMIT_C         80.0f
 
-/* L3 absolute-level calibration from two measured level poses: */
+/* L3 absolute-level calibration from two measured level poses:
+ *   pose A: q0=-0.891321, q1=2.131716, q2=1.697161
+ *   pose B: q0=-0.078448, q1=3.052980, q2=-0.071664
+ * Enforcing the known 1:1 wrist relation q0 = c - (q1 + q2)
+ * gives c = 2.920211 rad.
+ */
 #define ARM_L3_LEVEL_C           2.9202114f
 #define ARM_L3_MAX_SPEED         4.0f
 #define ARM_L3_MAX_STEP_RAD      0.04f
@@ -101,7 +106,6 @@ static uint8_t arm_setup_motors(FDCAN_HandleTypeDef *hfdcan)
     mcfg.p_min = -12.5f; mcfg.p_max = 12.5f;
     mcfg.v_min = -50.0f; mcfg.v_max = 50.0f;
     mcfg.t_min = -18.0f; mcfg.t_max = 18.0f;
-    mcfg.t_limit = 5.0f;   /* software total torque limit, Nm */
     mcfg.kp_min = 0.0f;  mcfg.kp_max = 500.0f;
     mcfg.kd_min = 0.0f;  mcfg.kd_max = 5.0f;
     mcfg.sign   = +1;    /* direction handled by arm_joint_to_motor_1 */
@@ -112,7 +116,6 @@ static uint8_t arm_setup_motors(FDCAN_HandleTypeDef *hfdcan)
     mcfg.p_min = -12.6f; mcfg.p_max = 12.6f;
     mcfg.v_min = -8.0f;  mcfg.v_max = 8.0f;
     mcfg.t_min = -7.0f;  mcfg.t_max = 7.0f;
-    mcfg.t_limit = 2.5f;   /* software total torque limit, Nm */
     mcfg.kp_min = 0.0f;  mcfg.kp_max = 500.0f;
     mcfg.kd_min = 0.0f;  mcfg.kd_max = 5.0f;
     mcfg.sign   = +1;
@@ -402,6 +405,7 @@ void arm_init(FDCAN_HandleTypeDef *hfdcan)
     {
         uint32_t now;
 
+        if (hfdcan != NULL) { fdcan_drv_service(hfdcan); }
         arm_send_safe_idle();
         if ((int32_t)(HAL_GetTick() - s_next_el05_enable_ms) >= 0)
         {
@@ -489,6 +493,7 @@ void arm_run(void)
 //三个关节之间的误差
     float err0, err1, err2;
 //如果初始化失败就返回
+    if (s_hfdcan != NULL) { fdcan_drv_service(s_hfdcan); }
     if (!s_inited) { return; }
 
     now = HAL_GetTick();
