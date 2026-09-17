@@ -119,15 +119,47 @@ extern int leg_inverse(const leg_pos_t *leg_pos, int elbow_up);
 
 /* ==================== 五次多项式轨迹规划 ==================== */
 
-/* 启动轨迹规划：给定目标关节角和时间，从当前电机角度平滑运动过去。
- * 参数：
- *   q1_end   —— 目标大臂角 (rad)
- *   q2_end   —— 目标小臂角 (rad)
- *   duration —— 运动总时长 (s)，越大越慢越平滑 */
-extern void jtraj_start(float q1_end, float q2_end, float duration);
+/* 自动计算轨迹时长：根据两个关节的转角差，按最大关节速度估算运动时间。
+ * 入参：
+ *   q1_start/q2_start —— 大臂/小臂起始关节角 (rad)
+ *   q1_end  /q2_end   —— 大臂/小臂目标关节角 (rad)
+ * 返回：建议轨迹时长 (s)，被钳制在 [0.65, 3.0] 秒 */
+extern float calc_motion_time(float q1_start, float q2_start, float q1_end, float q2_end);
 
-/* 每周期调用一次，更新轨迹并输出到 motion（通常传 &leg_motion）。
+/* 启动轨迹规划（系数预计算版）：
+ * 一次性把五次多项式 6 个系数 a0..a5 算好存进 jtraj.coeff，
+ * 之后 jtraj_update 只需代入时间 t 求值，省去每周期重复计算。
+ * 入参：
+ *   q1_start/q2_start —— 起始关节角 (rad)，建议取当前电机角度保证无缝衔接
+ *   q1_end  /q2_end   —— 目标关节角 (rad)
+ *   T_sec             —— 轨迹总时长 (s)，可先用 calc_motion_time 自动算 */
+extern void jtraj_start(float q1_start, float q2_start, float q1_end, float q2_end, float T_sec);
+
+/* 每周期调用一次，推进轨迹并输出位置/速度/加速度到 motion（通常传 &leg_motion）。
  * 返回：0 = 轨迹运行中，1 = 本次轨迹已完成，-1 = 轨迹未激活 */
 extern int jtraj_update(LegMotion_t *motion);
+
+/* 二连杆（XZ 平面）雅可比矩阵：关节速度 → 末端笛卡尔速度。
+ * 入参：q1/q2 当前关节角；输出 J11..J22 到指针。
+ * 用途：把关节速度换算成末端速度，供 cartesian_velocity_limit 限速。 */
+static inline void jacobian_rz(float q1, float q2, float *J11, float *J12, float *J21, float *J22)
+{
+    float s1  = sinf(q1);            /* sin(q1) */
+    float c1  = cosf(q1);            /* cos(q1) */
+    float s12 = sinf(q1 + q2);       /* sin(q1+q2) */
+    float c12 = cosf(q1 + q2);       /* cos(q1+q2) */
+
+    *J11 = -L1 * s1 - L2 * s12;      /* dx/dq1 */
+    *J12 = -L2 * s12;                /* dx/dq2 */
+    *J21 =  L1 * c1 + L2 * c12;      /* dz/dq1 */
+    *J22 =  L2 * c12;                /* dz/dq2 */
+}
+
+/* 笛卡尔末端速度软限幅：对关节速度做平滑衰减，避免末端速度突变/超速。
+ * 入参：
+ *   q1/q2        —— 当前关节角 (rad)，用于算雅可比
+ *   v1/v2        —— 输入/输出关节速度 (rad/s)，就地等比缩放
+ *   max_cart_vel —— 末端最大允许速度 (m/s) */
+extern void cartesian_velocity_limit(float q1, float q2, float *v1, float *v2, float max_cart_vel);
 
 #endif

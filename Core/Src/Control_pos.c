@@ -377,113 +377,228 @@ int Inverse_Kinematics_EE(leg_pos_t *my_pos, int elbow_up)
  *   铺一条平滑的曲线，让位置、速度、加速度都连续过渡。
  *
  * 五次多项式的原理：
- *   定义归一化时间 tau = elapsed / duration，范围 [0,1]。
- *   位置曲线 s(tau) = 10·tau? - 15·tau? + 6·tau?
+ *   轨迹 q(t) = a0 + a1·t + a2·t? + a3·t? + a4·t? + a5·t?
+ *   约束：起点/终点位置已知、起点/终点速度=0、起点/终点加速度=0，
+ *   代入可解出 6 个系数（详见 jtraj_start）。这条曲线满足：
+ *     q(0)=qs,  q(T)=qe        → 起点/终点位置正确
+ *     q'(0)=0,  q'(T)=0        → 静止起步、静止停，无速度突变
+ *     q''(0)=0, q''(T)=0       → 无加速度突变，运动丝滑
  *
- *   这条曲线有一个非常好的性质：
- *     s(0)=0,  s(1)=1            → 起点在 0，终点在 1
- *     s'(0)=0, s'(1)=0           → 起点、终点速度都为 0（静止起步、静止停）
- *     s''(0)=0, s''(1)=0         → 起点、终点加速度都为 0（无冲击）
- *   所以用 s(tau) 去插值起点和终点，就能得到"丝滑"的运动。
+ * 与旧版的区别：旧版每周期用归一化时间 tau 现场算 s/s_dot/s_ddot；
+ * 本版在 jtraj_start 里一次性算好 6 个系数，jtraj_update 只需代入 t 求值，
+ * 更省计算量，且"系数即轨迹本身"，逻辑更清晰。
  */
 
+/* ==================== 自动计算轨迹时长 ==================== */
 /*
- * 启动轨迹规划：记录起点、终点、时长，并把计时归零。
- * 起点直接取当前电机的实际角度，保证从当前位姿无缝衔接。
+ * 自动计算轨迹时长：已知两个关节的转角差，按"最大关节速度"估算需要多久走完。
+ *
+ * 为什么乘 0.64？
+ *   五次多项式的平均速度 ≈ 最大速度的 2/π ≈ 0.637 ≈ 0.64。
+ *   即走完整条 S 曲线，等效于以"最大速度 × 0.64"匀速走完全程，
+ *   所以 时间 = 最大转角 / (V_MAX × 0.64)。
+ *
+ * 入参：q1_start/q2_start = 起始角，q1_end/q2_end = 目标角。
+ * 返回：建议轨迹时长 (s)，被钳制在 [0.65, 3.0] 秒。
  */
-void jtraj_start(float q1_end, float q2_end, float duration)
+float calc_motion_time(float q1_start, float q2_start, float q1_end, float q2_end)
 {
-    /* 起点：取当前关节角（必须经方向系数和零偏换算，否则 jtraj 起点
-     * 用电机角而终点用关节角，轨迹计算就完全错了） */
-    jtraj.q1_start = motor1_to_joint(g_ak80.status.position);   /* 大臂当前关节角 */
-    jtraj.q2_start = motor2_to_joint(g_ak45.status.position);   /* 小臂当前关节角 */
+    const float V_MAX1 = 4.0f;   /* 最大关节速度 (rad/s)，按电机能力/手感调 *///此处可调整速度规划的时长！！！
 
-    /* 终点：用户指定的目标角 */
-    jtraj.q1_end = q1_end;                     /* 大臂目标角 */
-    jtraj.q2_end = q2_end;                     /* 小臂目标角 */
+    float diff1 = fabsf(q1_end - q1_start);   /* 大臂要转的角度绝对值 */
+    float diff2 = fabsf(q2_end - q2_start);   /* 小臂要转的角度绝对值 */
 
-    /* 时长：防止用户传 0 或负数导致除零，兜底成 0.001s */
-    jtraj.duration = (duration > 0.0f) ? duration : 0.001f;
+    /* 取转角更大的那个关节为准（两个关节要同时到达） */
+    float max_diff = (diff1 > diff2) ? diff1 : diff2;
 
-    /* 计时归零：从头开始走这条轨迹 */
-    jtraj.elapsed = 0.0f;
+    /* S 曲线平均速度 ≈ V_MAX * 0.64，时间 = 最大转角 / 平均速度 */
+    float time = max_diff / (V_MAX1 * 0.64f);
 
-    /* 激活轨迹：让 jtraj_update 开始工作 */
-    jtraj.active = 1;
+    /* 下限 0.65s：避免时间太短导致速度/加速度过大、冲击；上限 3.0s：避免太慢 */
+    if (time < 0.65f) time = 0.65f;
+    if (time > 3.0f)  time = 3.0f;
+
+    return time;
 }
 
+/* ==================== 启动轨迹规划（系数预计算） ==================== */
 /*
- * 每周期调用一次，推进轨迹并把结果写进 motion。
- * 返回值：
- *   0  = 轨迹还在运行中（没走完）
- *   1  = 本次轨迹刚好走完（到达终点）
- *  -1  = 轨迹未激活（没调用过 jtraj_start）
+ * 启动轨迹规划（系数预计算版）：记录起点/终点/时长，并一次性算好 6 个系数。
+ *
+ * 系数求解（以单个关节为例，q 从 qs 走到 qe，用时 T）：
+ *   边界条件：q(0)=qs, q'(0)=0, q''(0)=0, q(T)=qe, q'(T)=0, q''(T)=0
+ *   代入 q(t)=a0+a1t+a2t?+a3t?+a4t?+a5t?，解得：
+ *     a0 = qs
+ *     a1 = 0
+ *     a2 = 0
+ *     a3 =  10(qe-qs)/T?
+ *     a4 = -15(qe-qs)/T?
+ *     a5 =   6(qe-qs)/T?
+ *
+ * 入参：
+ *   q1_start/q2_start —— 起始关节角 (rad)，建议取当前电机角保证无缝衔接
+ *   q1_end  /q2_end   —— 目标关节角 (rad)
+ *   T_sec             —— 轨迹时长 (s)，可先用 calc_motion_time 自动算
+ */
+void jtraj_start(float q1_start, float q2_start, float q1_end, float q2_end, float T_sec)
+{
+    /* 1. 记录起点/终点：[0]=大臂 q1，[1]=小臂 q2 */
+    jtraj.q_start[0] = q1_start;
+    jtraj.q_start[1] = q2_start;
+    jtraj.q_end[0]   = q1_end;
+    jtraj.q_end[1]   = q2_end;
+
+    /* 2. 时长兜底：不能小于一个控制周期，否则除零/除出无穷 */
+    jtraj.duration = (T_sec > CONTROL_DT) ? T_sec : CONTROL_DT;
+
+    /* 3. 计时归零，激活轨迹 */
+    jtraj.elapsed = 0.0f;
+    jtraj.active  = 1;
+
+    /* 4. 对每个关节，按上面推导的公式预计算 6 个系数 */
+    for (int i = 0; i < J_TRAJ_JOINTS; i++) {
+        float qs = jtraj.q_start[i];   /* 本关节起点 */
+        float qe = jtraj.q_end[i];     /* 本关节终点 */
+        float T  = jtraj.duration;     /* 轨迹时长 */
+        float T2 = T * T;
+        float T3 = T2 * T;
+        float T4 = T3 * T;
+        float T5 = T4 * T;
+
+        jtraj.coeff[i][0] = qs;                        /* a0 = 起点位置 */
+        jtraj.coeff[i][1] = 0.0f;                      /* a1 = 起点速度 0 */
+        jtraj.coeff[i][2] = 0.0f;                      /* a2 = 起点加速度 0 */
+        jtraj.coeff[i][3] = (10.0f * (qe - qs)) / T3;  /* a3 */
+        jtraj.coeff[i][4] = (-15.0f * (qe - qs)) / T4; /* a4 */
+        jtraj.coeff[i][5] = (6.0f  * (qe - qs)) / T5;  /* a5 */
+    }
+}
+
+/* ==================== 推进轨迹 ==================== */
+/*
+ * 每周期调用一次，推进轨迹并输出位置/速度/加速度。
+ *
+ * 用预计算系数直接求值（对 q(t)=Σ a_i·t^i 求导）：
+ *   q(t)   = a0 + a1t + a2t? + a3t? + a4t? + a5t?
+ *   q'(t)  = a1 + 2a2t + 3a3t? + 4a4t? + 5a5t?
+ *   q''(t) = 2a2 + 6a3t + 12a4t? + 20a5t?
+ *
+ * 入参：motion = 结果缓存（通常传 &leg_motion）
+ * 返回：0 = 运行中，1 = 本次已完成，-1 = 未激活
  */
 int jtraj_update(LegMotion_t *motion)
 {
-    /* 未激活：说明没启动过轨迹，直接返回 -1 */
+    /* 未激活：没调用过 jtraj_start，直接返回 -1 */
     if (!jtraj.active) return -1;
 
     /* 累加时间：每个控制周期前进一个 CONTROL_DT */
     jtraj.elapsed += CONTROL_DT;
+    float t = jtraj.elapsed;
 
-    /* 计算归一化时间 tau = 已走时间 / 总时长，范围 [0,1] */
-    float tau = jtraj.elapsed / jtraj.duration;
-
-    /* 判断是否到达终点 */
-    if (tau >= 1.0f) {
-        /* 时间到了：把 tau 钳到 1，并关闭轨迹 */
-        tau = 1.0f;
-        jtraj.active = 0;
+    /* 到点了就钳到终点，防止最后一步因浮点误差越界 */
+    int finished = 0;
+    if (t >= jtraj.duration) {
+        t = jtraj.duration;
+        jtraj.active = 0;   /* 关闭轨迹 */
+        finished = 1;
     }
 
-    /* ---- 五次多项式的中间变量，减少重复计算 ---- */
-    float tau2 = tau * tau;      
-    float tau3 = tau2 * tau;     
+    /* t 的幂次，两个关节共用 */
+    float t2 = t * t;
+    float t3 = t2 * t;
+    float t4 = t3 * t;
+    float t5 = t4 * t;
 
-    /* 时长相关倒数：把"对归一化时间的导数"换算成"对真实时间的导数" */
-    float inv_T  = 1.0f / jtraj.duration;   /* 1/T */
-    float inv_T2 = inv_T * inv_T;           /* 1/T? */
+    /* 对每个关节，用系数求 q(t)、q'(t)、q''(t) */
+    float q[J_TRAJ_JOINTS], dq[J_TRAJ_JOINTS], ddq[J_TRAJ_JOINTS];
+    for (int i = 0; i < J_TRAJ_JOINTS; i++) {
+        float *c = jtraj.coeff[i];   /* 本关节 6 个系数 */
 
-    /* ---- 1. 位置 s(tau) = 10t? - 15t? + 6t? ----
-     * 写成 Horner 形式：t?·(10 + t·(-15 + 6t))，省乘法、省精度损失 */
-    float s = tau3 * (10.0f + tau * (-15.0f + 6.0f * tau));
+        /* 位置 q(t) */
+        q[i]   = c[0] + c[1]*t + c[2]*t2 + c[3]*t3 + c[4]*t4 + c[5]*t5;
 
-    /* ---- 2. 速度 ds/dt = s'(tau) / T ----
-     * 对 tau 求导再除以 T，得到对真实时间 t 的导数。
-     * s'(tau) = 30t? - 60t? + 30t? = t?·(30 + t·(-60 + 30t)) */
-    float s_dot = tau2 * inv_T * (30.0f + tau * (-60.0f + 30.0f * tau));
+        /* 速度 q'(t) */
+        dq[i]  = c[1] + 2.0f*c[2]*t + 3.0f*c[3]*t2 + 4.0f*c[4]*t3 + 5.0f*c[5]*t4;
 
-    /* ---- 3. 加速度 d方s/dt方 = s''(tau) / T方 ----
-     * 对 tau 求二阶导再除以 T方，得到真实加速度。
-     * s''(tau) = 60t - 180t方 + 120t方 = t·(60 + t·(-180 + 120t)) */
-    float s_ddot = tau * inv_T2 * (60.0f + tau * (-180.0f + 120.0f * tau));
+        /* 加速度 q''(t) */
+        ddq[i] = 2.0f*c[2] + 6.0f*c[3]*t + 12.0f*c[4]*t2 + 20.0f*c[5]*t3;
+    }
 
-    /* ---- 把归一化轨迹 s 映射到两个关节的真实角度区间 ---- */
-    /* 位移量 = 终点 - 起点 */
-    float delta1 = jtraj.q1_end - jtraj.q1_start;   /* 大臂要转的总角度 */
-    float delta2 = jtraj.q2_end - jtraj.q2_start;   /* 小臂要转的总角度 */
+    /* 关节角输出 (rad) */
+    motion->q1_target = q[0];
+    motion->q2_target = q[1];
 
-    /* 目标位置 = 起点 + 位移量 × 归一化位置 s */
-    motion->q1_target = jtraj.q1_start + delta1 * s;   /* 大臂当前应处角度 */
-    motion->q2_target = jtraj.q2_start + delta2 * s;   /* 小臂当前应处角度 */
+    /* 关节速度输出 (rad/s)，供电机 MIT 模式 V_des 前馈 */
+    motion->joint1_speed_target = dq[0];
+    motion->joint2_speed_target = dq[1];
 
-    /* 目标速度 = 位移量 × 归一化速度 s_dot（前馈速度，供 MIT 的 V_des） */
-    motion->joint1_speed_target = delta1 * s_dot;      /* 大臂期望速度 */
-    motion->joint2_speed_target = delta2 * s_dot;      /* 小臂期望速度 */
+    /* 关节加速度输出 (rad/s?)，供电机力矩前馈 FF */
+    motion->joint1_acc_target = ddq[0];
+    motion->joint2_acc_target = ddq[1];
 
-    /* 目标加速度 = 位移量 × 归一化加速度 s_ddot（前馈加速度，供力矩前馈） */
-    motion->joint1_acc_target = delta1 * s_ddot;       /* 大臂期望加速度 */
-    motion->joint2_acc_target = delta2 * s_ddot;       /* 小臂期望加速度 */
-
-    /* ---- 安全处理：限位钳位 + 角度换算 ---- */
-    /* 先钳到软限位内，防止轨迹终点越过机械极限 */
+    /* 安全：钳到软限位，防止轨迹终点越过机械极限 */
     clamp_to_joint_limit(&motion->q1_target, &motion->q2_target);
 
-    /* 关节角 → 电机角（当前 1:1，机械零位有偏差时改 joint_to_motor_*） */
+    /* 关节角 → 电机角（含零偏/方向换算） */
     motion->motor1_target_angle = joint_to_motor_1(motion->q1_target);
     motion->motor2_target_angle = joint_to_motor_2(motion->q2_target);
 
-    /* 返回：tau 已经到 1 → 完成返回 1；否则还在走 → 返回 0 */
-    return (tau >= 1.0f) ? 1 : 0;
+    /* 返回：完成返回 1，运行中返回 0 */
+    return finished ? 1 : 0;
+}
+
+/* ============================================================ */
+/* ==================== 雅可比矩阵 & 速度软限幅 ==================== */
+/* ============================================================ */
+/*
+ * 二连杆（XZ 平面）雅可比矩阵（jacobian_rz 已在 Control_pos.h 以 static inline 实现）：
+ * 把"关节速度"换算成"末端（腕部）笛卡尔速度"。
+ *
+ * 末端位置（正运动学）：
+ *   x = L1·cos(q1) + L2·cos(q1+q2)
+ *   z = L1·sin(q1) + L2·sin(q1+q2)
+ * 对时间求导：
+ *   vx = J11·q1_dot + J12·q2_dot
+ *   vz = J21·q1_dot + J22·q2_dot
+ * 其中：
+ *   J11 = dx/dq1 = -L1·sin(q1) - L2·sin(q1+q2)
+ *   J12 = dx/dq2 = -L2·sin(q1+q2)
+ *   J21 = dz/dq1 =  L1·cos(q1) + L2·cos(q1+q2)
+ *   J22 = dz/dq2 =  L2·cos(q1+q2)
+ */
+
+/*
+ * 笛卡尔末端速度软限幅：
+ * 先由雅可比算出当前末端速度，再对关节速度做"平滑衰减"。
+ *
+ * 软限幅公式：soft_scale = 1 / (1 + 0.5·ratio?)，ratio = 末端速度/上限。
+ *   - ratio 很小（慢）→ soft_scale ≈ 1，几乎不衰减；
+ *   - ratio 越大（越快）→ soft_scale 越小，衰减越强，是连续平滑的，
+ *     不会像硬截断那样造成速度突变。
+ *
+ * 入参：
+ *   q1/q2        —— 当前关节角 (rad)，用于算雅可比
+ *   v1/v2        —— 输入/输出关节速度 (rad/s)，就地等比缩放
+ *   max_cart_vel —— 末端最大允许速度 (m/s)
+ */
+void cartesian_velocity_limit(float q1, float q2, float *v1, float *v2, float max_cart_vel)
+{
+    /* 1. 算雅可比矩阵 */
+    float J11, J12, J21, J22;
+    jacobian_rz(q1, q2, &J11, &J12, &J21, &J22);
+
+    /* 2. 关节速度 → 末端笛卡尔速度 (vx, vz) */
+    float cart_vx = J11 * (*v1) + J12 * (*v2);
+    float cart_vz = J21 * (*v1) + J22 * (*v2);
+
+    /* 3. 末端合速度大小（用牛顿法开平方，避免依赖 sqrtf） */
+    float cart_speed = my_sqrtf(cart_vx * cart_vx + cart_vz * cart_vz);
+
+    /* 4. 计算软衰减系数：ratio 是当前速度相对上限的倍数 */
+    float ratio = cart_speed / max_cart_vel;                  /* 当前速度是上限的几倍 */
+    float soft_scale = 1.0f / (1.0f + 0.5f * ratio * ratio);  /* 平滑衰减系数 */
+
+    /* 5. 等比缩放两个关节速度 */
+    *v1 *= soft_scale;
+    *v2 *= soft_scale;
 }

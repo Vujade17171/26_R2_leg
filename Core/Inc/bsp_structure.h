@@ -144,17 +144,22 @@ typedef struct {
 /* ==================== 五次多项式轨迹规划句柄 ==================== */
 /**
  * @brief  关节空间五次多项式轨迹规划句柄。
- * @note   用归一化时间 tau = elapsed / duration 在 [0,1] 区间内做平滑插值，
+ * @note   用五次多项式 q(t)=a0+a1t+a2t?+a3t?+a4t?+a5t? 做平滑插值，
  *         位置、速度、加速度在起点和终点都连续（C2 连续），运动丝滑无冲击。
+ *         6 个系数在 jtraj_start 里一次性算好，jtraj_update 只代入 t 求值。
  */
+
+/* 轨迹规划的关节数：本项目只对大臂(q1)、小臂(q2)做轨迹规划，
+ * 腕部 EL05 由 EL05_Calc_Horizontal_Angle 单独保持水平，不参与轨迹。 */
+#define J_TRAJ_JOINTS  2
+
 typedef struct {
-    uint8_t active;      /* 轨迹是否激活：1=运行中，0=空闲/已结束 */
-    float   elapsed;     /* 已运行时间 (s)，每次 update 累加一个控制周期 */
-    float   duration;    /* 轨迹总时长 (s)，决定运动快慢 */
-    float   q1_start;    /* 起始关节角 q1 (rad)，启动时取当前电机角度 */
-    float   q2_start;    /* 起始关节角 q2 (rad)，启动时取当前电机角度 */
-    float   q1_end;      /* 目标关节角 q1 (rad)，用户指定 */
-    float   q2_end;      /* 目标关节角 q2 (rad)，用户指定 */
+    uint8_t active;                   /* 轨迹是否激活：1=运行中，0=空闲/已结束 */
+    float   elapsed;                  /* 已运行时间 (s)，每次 update 累加一个控制周期 */
+    float   duration;                 /* 轨迹总时长 (s)，决定运动快慢 */
+    float   q_start[J_TRAJ_JOINTS];   /* 各关节起始角 (rad)：[0]=大臂q1，[1]=小臂q2 */
+    float   q_end[J_TRAJ_JOINTS];     /* 各关节目标角 (rad)：[0]=大臂q1，[1]=小臂q2 */
+    float   coeff[J_TRAJ_JOINTS][6];  /* 五次多项式系数 a0..a5，启动时一次性算好 */
 } JTraj_t;
 
 #endif

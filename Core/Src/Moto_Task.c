@@ -11,13 +11,15 @@
 
 /* 当前控制模式：上电默认进"归零模式"，你可在 debug 里改成 1 切到位置控制 */
 volatile control_mode_t g_ctrl_mode   = MODE_ZERO;
+/* 位置规划触发标志：debug 里置 1，触发一次新的末端位置规划（触发后自动清零） */
+volatile int            g_cmd_trigger = 0;
 float tau_sh;   /* 大臂（肩）前馈力矩 */
 float tau_el;   /* 小臂（肘）前馈力矩 */
-float el05_target,dt;
-
+float el05_target, dt;   /* EL05 目标角；dt 本周期真实耗时（秒） */
+int ret;
 
 /* 位置控制指令：debug 里改这四个字段 */
-pos_cmd_t g_pos_cmd = 
+pos_cmd_t g_pos_cmd =
 {
     .target_x_s = 0.22f,   /* 默认末端落点 x */
     .target_z_s = 0.23f,   /* 默认末端落点 z */
@@ -86,32 +88,81 @@ void Moto_Diver(void *argument)
 
         if (g_ctrl_mode == MODE_POSITION)
         {
-            /* 用 debug 里填的"末端落点"构造目标 */
-            leg_pos_t target = {0};
-            target.x_s = g_pos_cmd.target_x_s;   /* 目标末端 x */
-            target.z_s = g_pos_cmd.target_z_s;   /* 目标末端 z */
-            target.yaw = EL05_HORIZONTAL_ABS_ANGLE;   /* 末端姿态固定：始终指向 -x、平行 x 轴 */
-
-            /* 填的是 x_s/z_s（末端落点），用 EE 版逆解算 */
-            int ret = Inverse_Kinematics_EE(&target, ELBOW_AUTO);
-
-            if (ret == 0)
+            /* ===== 触发检测：debug 里置 g_cmd_trigger=1，启动一次新的位置规划 ===== */
+            if (g_cmd_trigger)
             {
-								tau_sh = 0.0f;   /* 大臂（肩）前馈力矩 */
-								tau_el = 0.0f;   /* 小臂（肘）前馈力矩 */
-							  Control_Torque_FeedForward(&tau_sh, &tau_el, 0, dt);
-                /* 下发"电机角"（已含零偏换算），不是关节角 q1/q2 */
-                AK_Motion_Control(&g_ak80, leg_motion.motor1_target_angle, 0, g_kp, g_kd, tau_sh);
-                AK_Motion_Control(&g_ak45, leg_motion.motor2_target_angle, 0, g_kp, g_kd, tau_el);
-							
-//								AK_Motion_Control(&g_ak80, 0, 0, 0, 0, 0);
-//                AK_Motion_Control(&g_ak45, 0, 0, 0, 0, 0);
+                g_cmd_trigger = 0;   /* 立即清标志，避免下个周期重复触发 */
 
-                /* 腕部 EL05：始终保持水平且指向 -x，目标角由目标关节角反推 */
-                el05_target = EL05_Calc_Horizontal_Angle(motor1_to_joint(g_ak80.status.position),motor2_to_joint(g_ak45.status.position));
-								osDelay(1);
-								EL05_Motion_Control(&g_el05, el05_target, 0, g_kp_EL, g_kd_EL, 0.0f);
+                /* 用 debug 里填的"末端落点"构造目标 */
+                leg_pos_t target = {0};
+                target.x_s = g_pos_cmd.target_x_s;   /* 目标末端 x */
+                target.z_s = g_pos_cmd.target_z_s;   /* 目标末端 z */
+                target.yaw = EL05_HORIZONTAL_ABS_ANGLE;   /* 末端姿态固定：始终指向 -x、平行 x 轴 */
+
+                /* 填的是 x_s/z_s（末端落点），用 EE 版逆解算，得到目标关节角并写进 leg_motion */
+								if(target.x_s<=0)
+								{
+									ret = Inverse_Kinematics_EE(&target, ELBOW_AUTO);
+								}
+								else if(target.x_s>=0)
+								{
+									ret = Inverse_Kinematics_EE(&target, ELBOW_UP);
+								}
+                if (ret == 0)
+                {
+                    /* 读当前实际关节角（已减零偏、方向换算），作为轨迹起点 */
+                    float q1_cur = motor1_to_joint(g_ak80.status.position);   /* 大臂当前关节角 */
+                    float q2_cur = motor2_to_joint(g_ak45.status.position);   /* 小臂当前关节角 */
+
+                    /* 自动算轨迹时长：按最大关节速度 + 两个关节的转角差 */
+                    float T = calc_motion_time(q1_cur, q2_cur,
+                                               leg_motion.q1_target, leg_motion.q2_target);
+
+                    /* 启动五次多项式轨迹：从当前角平滑走到目标角（内部预计算 6 个系数） */
+                    jtraj_start(q1_cur, q2_cur,
+                                leg_motion.q1_target, leg_motion.q2_target, T);
+                }
             }
+
+            /* ===== 每周期推进轨迹，得到平滑的位置/速度/加速度 ===== */
+            /* 返回值：0=运行中，1=刚完成，-1=未激活 */
+            int traj_state = jtraj_update(&leg_motion);
+
+            /* ===== 根据轨迹状态决定本周期下发的目标 ===== */
+            float motor1_cmd, motor2_cmd;   /* 下发的大臂/小臂电机角 (rad) */
+            float vel1_cmd,   vel2_cmd;     /* 下发的大臂/小臂速度前馈 (rad/s) */
+
+            if (traj_state >= 0)
+            {
+                /* 轨迹有效（运行中/刚完成）：用平滑后的电机角 + 速度前馈 */
+                motor1_cmd = leg_motion.motor1_target_angle;   /* 大臂平滑目标电机角 */
+                motor2_cmd = leg_motion.motor2_target_angle;   /* 小臂平滑目标电机角 */
+                vel1_cmd   = AK80_DIR * leg_motion.joint1_speed_target;   /* 关节速度 → 电机速度 */
+                vel2_cmd   = AK45_DIR * leg_motion.joint2_speed_target;   /* 关节速度 → 电机速度 */
+            }
+            else
+            {
+                /* 轨迹未激活：保持当前电机角不动，防止长时间无指令导致电机超时失能 */
+                motor1_cmd = g_ak80.status.position;   /* 大臂保持当前反馈角 */
+                motor2_cmd = g_ak45.status.position;   /* 小臂保持当前反馈角 */
+                vel1_cmd   = 0.0f;                      /* 无前馈速度 */
+                vel2_cmd   = 0.0f;                      /* 无前馈速度 */
+            }
+
+            /* 重力补偿前馈力矩（空载） */
+            tau_sh = 0.0f;   /* 大臂（肩）前馈力矩先清零 */
+            tau_el = 0.0f;   /* 小臂（肘）前馈力矩先清零 */
+            Control_Torque_FeedForward(&tau_sh, &tau_el, 0, dt);
+
+            /* 下发大臂/小臂：位置 + 速度前馈 + 重力补偿力矩 */
+            AK_Motion_Control(&g_ak80, motor1_cmd, vel1_cmd, g_kp, g_kd, tau_sh);
+            AK_Motion_Control(&g_ak45, motor2_cmd, vel2_cmd, g_kp, g_kd, tau_el);
+
+            /* 腕部 EL05：始终保持水平且指向 -x，目标角由当前关节角反推 */
+            el05_target = EL05_Calc_Horizontal_Angle(motor1_to_joint(g_ak80.status.position),
+                                                     motor2_to_joint(g_ak45.status.position));
+            osDelay(1);
+            EL05_Motion_Control(&g_el05, el05_target, 0, g_kp_EL, g_kd_EL, 0.0f);
         }
         else if (g_ctrl_mode == MODE_TORQUE)
         {
@@ -130,18 +181,20 @@ void Moto_Diver(void *argument)
             AK_Motion_Control(&g_ak45, 0, 0, 0, 0, tau_el);
 
             /* 腕部 EL05 暂不参与测试，保持当前姿态 */
-						el05_target = EL05_Calc_Horizontal_Angle(motor1_to_joint(g_ak80.status.position), motor2_to_joint(g_ak45.status.position));
-					osDelay(1);
-						            EL05_Motion_Control(&g_el05, el05_target, 0, g_kp_EL, g_kd_EL, 0.0f);
+            el05_target = EL05_Calc_Horizontal_Angle(motor1_to_joint(g_ak80.status.position),
+                                                     motor2_to_joint(g_ak45.status.position));
+            osDelay(1);
+            EL05_Motion_Control(&g_el05, el05_target, 0, g_kp_EL, g_kd_EL, 0.0f);
         }
         else
         {
             /* MODE_ZERO：归零（电机角直接给 0） */
-                AK_Motion_Control(&g_ak80, 0, 0, g_kp, g_kd, 0);
-                AK_Motion_Control(&g_ak45, 0, 0, g_kp, g_kd, 0);
-            el05_target = EL05_Calc_Horizontal_Angle(motor1_to_joint(g_ak80.status.position), motor2_to_joint(g_ak45.status.position));
-					osDelay(1);
-						            EL05_Motion_Control(&g_el05, el05_target, 0, g_kp_EL, g_kd_EL, 0.0f);
+            AK_Motion_Control(&g_ak80, 0, 0, g_kp, g_kd, 0);
+            AK_Motion_Control(&g_ak45, 0, 0, g_kp, g_kd, 0);
+            el05_target = EL05_Calc_Horizontal_Angle(motor1_to_joint(g_ak80.status.position),
+                                                     motor2_to_joint(g_ak45.status.position));
+            osDelay(1);
+            EL05_Motion_Control(&g_el05, el05_target, 0, g_kp_EL, g_kd_EL, 0.0f);
         }
 
 //        /* ========== 第四步：用 DWT 精确补齐到固定 1kHz 周期 ==========*/
