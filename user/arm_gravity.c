@@ -24,8 +24,7 @@ volatile float arm_gravity_gear_sh = 1.50f;
 volatile float arm_gravity_gear_el = 1.30f;
 
 /* Keil Watch 调试量。 */
-volatile float arm_gravity_tau_shoulder_joint = 0.0f;
-volatile float arm_gravity_tau_elbow_joint = 0.0f;
+
 volatile float arm_gravity_tau_shoulder_motor = 0.0f;
 volatile float arm_gravity_tau_elbow_motor = 0.0f;
 
@@ -80,8 +79,7 @@ void arm_gravity_get(float q1, float q2,
 
     tau_el_joint = ARM_GRAVITY_G * m_l2 * ARM_L2 * c12;
 
-    arm_gravity_tau_shoulder_joint = tau_sh_joint;
-    arm_gravity_tau_elbow_joint = tau_el_joint;
+
 
     /* 关节侧力矩除以外部减速比，得到电机侧前馈力矩。 */
     gear_sh = fabsf(arm_gravity_gear_sh);

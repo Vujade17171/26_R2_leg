@@ -14,8 +14,7 @@ extern volatile float arm_gravity_gear_sh;
 extern volatile float arm_gravity_gear_el;
 
 /* 调试变量：joint 为关节侧计算力矩，motor 为最终发送给 MIT 接口的力矩。 */
-extern volatile float arm_gravity_tau_shoulder_joint;
-extern volatile float arm_gravity_tau_elbow_joint;
+
 extern volatile float arm_gravity_tau_shoulder_motor;
 extern volatile float arm_gravity_tau_elbow_motor;
 

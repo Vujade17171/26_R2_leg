@@ -63,13 +63,9 @@ extern FDCAN_HandleTypeDef hfdcan1;
 
 /* ---- debug globals (watch in Keil) ---- */
 arm_dbg_t arm_dbg = {0};
-arm_xy_error_dbg_t arm_xy_err = {0};
+
 volatile float    arm_target[3] = {0.35f, 0.25f, 0.0f};  /* x,z,yaw */
 volatile uint8_t  arm_cmd_new  = 0;
-
-volatile uint8_t  arm_gravity_test = 0U;
-
-volatile uint8_t  arm_gravity_hold_enable = 0;
 
 static FDCAN_HandleTypeDef *s_hfdcan = NULL;
 static uint32_t s_last_tick = 0;
@@ -79,8 +75,6 @@ static uint8_t  s_target_set = 0;   /* 0 until first target command */
 static uint8_t  s_fault     = 0;    /* 1 = safety stop latched */
 static uint32_t s_last_run_ms = 0;
 static uint32_t s_next_el05_enable_ms = 0;
-static uint8_t  s_gravity_hold_valid = 0U;
-static float    s_gravity_hold_q[3] = {0.0f, 0.0f, 0.0f};
 static float    s_q0_cmd = 0.0f;
 static uint8_t  s_l3_level_active = 0U;
 
@@ -174,12 +168,6 @@ static void arm_fail_safe(void)
     arm_dbg.last_err = -2;
 }
 
-/* -------- update Cartesian position error -------- */
-static void arm_update_xy_error(void)
-{
-    arm_xy_err.x = arm_dbg.x - arm_dbg.x_actual;
-    arm_xy_err.z = arm_dbg.z - arm_dbg.z_actual;
-}
 
 /* -------- read feedback and convert motor angle -> joint angle -------- */
 static void arm_refresh_feedback(void)
@@ -192,40 +180,22 @@ static void arm_refresh_feedback(void)
     if (st1) {
         s_cur_joint[1] = arm_motor_to_joint_1(st1->pos);
         arm_dbg.joint[0].angle  = s_cur_joint[1];
-        arm_dbg.joint[0].vel    = st1->vel;
-        arm_dbg.joint[0].torque = st1->torque;
-        arm_dbg.joint[0].online  = st1->online;
-        arm_dbg.joint[0].error   = st1->error;
-        arm_dbg.joint[0].pattern = 0U;
-        arm_dbg.joint[0].sign    = +1;
     }
     /* elbow (motor2 -> joint2) */
     if (st2) {
         s_cur_joint[2] = arm_motor_to_joint_2(st2->pos);
         arm_dbg.joint[1].angle  = s_cur_joint[2];
-        arm_dbg.joint[1].vel    = st2->vel;
-        arm_dbg.joint[1].torque = st2->torque;
-        arm_dbg.joint[1].online  = st2->online;
-        arm_dbg.joint[1].error   = st2->error;
-        arm_dbg.joint[1].pattern = 0U;
-        arm_dbg.joint[1].sign    = +1;
     }
     /* wrist (robstride -> q0 directly) */
     if (st3) {
         s_cur_joint[0]       = st3->angle;
         arm_dbg.joint[2].angle  = st3->angle;
-        arm_dbg.joint[2].vel    = st3->speed;
-        arm_dbg.joint[2].torque = st3->torque;
-        arm_dbg.joint[2].online  = st3->online;
-        arm_dbg.joint[2].error   = st3->error;
-        arm_dbg.joint[2].pattern = st3->pattern;
-        arm_dbg.joint[2].sign    = -1;
     }
 
     /* Forward kinematics: current wrist centre, L1/L2 only. */
     arm_forward(s_cur_joint[1], s_cur_joint[2],
                 &arm_dbg.x_actual, &arm_dbg.z_actual);
-    arm_update_xy_error();
+
 }
 
 /* Keep the L3 axis level while q1/q2 move. */
@@ -282,79 +252,6 @@ static void arm_send_motors(float q0, float q1, float q2,
     }
 }
 
-/* Mode 3: gravity feed-forward + optional position hold.
- * arm_gravity_hold_enable = 1: latch current pose and hold with Kp/Kd.
- * arm_gravity_hold_enable = 0: pure feed-forward test (Kp=0, Kd=0).
- */
-static void arm_send_gravity_test(void)
-{
-    float tau_sh = 0.0f;
-    float tau_el = 0.0f;
-    float q0_ref;
-    float q1_ref;
-    float q2_ref;
-    float kp_sh;
-    float kd_sh;
-    float kp_el;
-    float kd_el;
-
-    arm_gravity_get(s_cur_joint[1], s_cur_joint[2], &tau_sh, &tau_el);
-
-    if (arm_gravity_hold_enable != 0U)
-    {
-        if (s_gravity_hold_valid == 0U)
-        {
-            s_gravity_hold_q[0] = s_cur_joint[0];
-            s_gravity_hold_q[1] = s_cur_joint[1];
-            s_gravity_hold_q[2] = s_cur_joint[2];
-            s_gravity_hold_valid = 1U;
-        }
-
-        q0_ref = s_gravity_hold_q[0];
-        q1_ref = s_gravity_hold_q[1];
-        q2_ref = s_gravity_hold_q[2];
-        kp_sh = ARM_KP_SHOULDER;
-        kd_sh = ARM_KD_SHOULDER;
-        kp_el = ARM_KP_ELBOW;
-        kd_el = ARM_KD_ELBOW;
-    }
-    else
-    {
-        s_gravity_hold_valid = 0U;
-        q0_ref = s_cur_joint[0];
-        q1_ref = s_cur_joint[1];
-        q2_ref = s_cur_joint[2];
-        kp_sh = 0.0f;
-        kd_sh = 0.0f;
-        kp_el = 0.0f;
-        kd_el = 0.0f;
-    }
-
-    if (HAL_FDCAN_GetTxFifoFreeLevel(s_hfdcan) != 0U)
-    {
-        robstride_set_control(s_hfdcan, ARM_M3_ID, 0.0f,
-                              q0_ref, 0.0f,
-                              ARM_KP_WRIST, ARM_KD_WRIST);
-    }
-    if (HAL_FDCAN_GetTxFifoFreeLevel(s_hfdcan) != 0U)
-    {
-        mit_motor_set_control(s_hfdcan, ARM_M1_ID,
-                              arm_joint_to_motor_1(q1_ref), 0.0f,
-                              kp_sh, kd_sh, tau_sh);
-    }
-    if (HAL_FDCAN_GetTxFifoFreeLevel(s_hfdcan) != 0U)
-    {
-        mit_motor_set_control(s_hfdcan, ARM_M2_ID,
-                              arm_joint_to_motor_2(q2_ref), 0.0f,
-                              kp_el, kd_el, tau_el);
-    }
-
-    arm_dbg.joint[0].target = q1_ref;
-    arm_dbg.joint[1].target = q2_ref;
-    arm_dbg.joint[2].target = q0_ref;
-    arm_dbg.gravity_test = 3U;
-    arm_dbg.reached = 0U;
-}
 /* -------- zero torque/gain frame: solicit feedback without motion -------- */
 static void arm_send_safe_idle(void)
 {
@@ -382,7 +279,6 @@ void arm_init(FDCAN_HandleTypeDef *hfdcan)
     s_fault   = 0U;
     s_target_set = 0U;
     arm_cmd_new = 0U;
-    s_gravity_hold_valid = 0U;
     s_l3_level_active = 0U;
     s_last_tick = HAL_GetTick();
     arm_traj_stop();
@@ -435,11 +331,9 @@ void arm_init(FDCAN_HandleTypeDef *hfdcan)
     s_q0_cmd = s_cur_joint[0];
     arm_dbg.x = arm_dbg.x_actual;
     arm_dbg.z = arm_dbg.z_actual;
-    arm_update_xy_error();
+
     s_target_set   = 0U;
 
-    arm_dbg.mode         = 1U;
-    arm_dbg.gravity_test = 0U;
     arm_dbg.reached      = 0U;
     arm_dbg.last_err = 0;
     s_last_run_ms = HAL_GetTick();
@@ -476,8 +370,7 @@ int arm_goto(float x, float z, float yaw)
     s_target_set   = 1;
     arm_dbg.last_err = 0;
     arm_dbg.reached  = 0;
-    arm_dbg.x = x; arm_dbg.z = z; arm_dbg.yaw = yaw;
-    arm_dbg.mode = 1;
+    arm_dbg.x = x; arm_dbg.z = z;
     return 0;
 }
 
@@ -522,21 +415,6 @@ void arm_run(void)
         return;
     }
 
-    /* Gravity test mode 3: bypass trajectory control. */
-    if (arm_gravity_test != 3U)
-    {
-        arm_gravity_test = 0U;
-        s_gravity_hold_valid = 0U;
-    }
-    if (arm_gravity_test == 3U)
-    {
-        arm_traj_stop();
-        s_target_set = 0U;
-        arm_cmd_new = 0U;
-        arm_send_gravity_test();
-        return;
-    }
-    arm_dbg.gravity_test = 0U;
     /* handle new command from debug */
     if (arm_cmd_new)
     {
