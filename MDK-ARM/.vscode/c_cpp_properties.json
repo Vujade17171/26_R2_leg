@@ -10,11 +10,19 @@
                 "d:\\RC-2027\\robot arm\\26_R2_leg\\Drivers\\CMSIS\\Include",
                 "d:\\RC-2027\\robot arm\\26_R2_leg\\bas",
                 "d:\\RC-2027\\robot arm\\26_R2_leg\\user",
+                "d:\\RC-2027\\robot arm\\26_R2_leg\\task",
+                "d:\\RC-2027\\robot arm\\26_R2_leg\\Middlewares\\Third_Party\\FreeRTOS\\Source\\include",
+                "d:\\RC-2027\\robot arm\\26_R2_leg\\Middlewares\\Third_Party\\FreeRTOS\\Source\\CMSIS_RTOS_V2",
+                "d:\\RC-2027\\robot arm\\26_R2_leg\\Middlewares\\Third_Party\\FreeRTOS\\Source\\portable\\RVDS\\ARM_CM4F",
+                "d:\\RC-2027\\robot arm\\26_R2_leg\\Drivers\\CMSIS\\RTOS2\\Include",
                 "D:\\keil5\\ARM\\ARMCC\\include",
                 "D:\\keil5\\ARM\\ARMCC\\include\\rw",
                 "d:\\RC-2027\\robot arm\\26_R2_leg\\MDK-ARM",
                 "d:\\RC-2027\\robot arm\\26_R2_leg\\Core\\Src",
-                "d:\\RC-2027\\robot arm\\26_R2_leg\\Drivers\\STM32H7xx_HAL_Driver\\Src"
+                "d:\\RC-2027\\robot arm\\26_R2_leg\\Drivers\\STM32H7xx_HAL_Driver\\Src",
+                "d:\\RC-2027\\robot arm\\26_R2_leg\\Middlewares\\Third_Party\\FreeRTOS\\Source\\portable\\Common",
+                "d:\\RC-2027\\robot arm\\26_R2_leg\\Middlewares\\Third_Party\\FreeRTOS\\Source",
+                "d:\\RC-2027\\robot arm\\26_R2_leg\\Middlewares\\Third_Party\\FreeRTOS\\Source\\portable\\MemMang"
             ],
             "defines": [
                 "USE_PWR_LDO_SUPPLY",
