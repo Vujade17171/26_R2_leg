@@ -18,13 +18,15 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
+#include "FreeRTOS.h"
+#include "cmsis_os2.h"
 #include "fdcan.h"
 #include "tim.h"
 #include "gpio.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-#include "arm_control.h"
+#include "arm_task.h"
 
 /* USER CODE END Includes */
 
@@ -46,14 +48,13 @@
 /* Private variables ---------------------------------------------------------*/
 
 /* USER CODE BEGIN PV */
-volatile uint8_t g_control_tick = 0U;
-volatile uint32_t g_control_overrun_count = 0U;
 
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 static void MPU_Config(void);
+void MX_FREERTOS_Init(void);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
@@ -98,14 +99,18 @@ int main(void)
   MX_FDCAN1_Init();
   MX_TIM6_Init();
   /* USER CODE BEGIN 2 */
-  arm_init(&hfdcan1);
-
-  if (HAL_TIM_Base_Start_IT(&htim6) != HAL_OK)
-  {
-    Error_Handler();
-  }
+  arm_task_hardware_init(&hfdcan1);
 
   /* USER CODE END 2 */
+
+  /* Init scheduler */
+  osKernelInitialize();  /* Call init function for freertos objects (in cmsis_os2.c) */
+  MX_FREERTOS_Init();
+
+  /* Start scheduler */
+  osKernelStart();
+
+  /* We should never get here as control is now taken by the scheduler */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
@@ -114,19 +119,7 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-    if (g_control_tick != 0U)
-    {
-      uint32_t primask = __get_PRIMASK();
-
-      __disable_irq();
-      g_control_tick = 0U;
-      if (primask == 0U)
-      {
-        __enable_irq();
-      }
-
-      arm_run();
-    }
+    /* 调度器启动后不会执行到这里。 */
   }
   /* USER CODE END 3 */
 }
@@ -190,18 +183,6 @@ void SystemClock_Config(void)
 }
 
 /* USER CODE BEGIN 4 */
-void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
-{
-  if (htim == &htim6)
-  {
-    if (g_control_tick != 0U)
-    {
-      g_control_overrun_count++;
-    }
-
-    g_control_tick = 1U;
-  }
-}
 
 /* USER CODE END 4 */
 
@@ -232,6 +213,31 @@ void MPU_Config(void)
   /* Enables the MPU */
   HAL_MPU_Enable(MPU_PRIVILEGED_DEFAULT);
 
+}
+
+/**
+  * @brief  Period elapsed callback in non blocking mode
+  * @note   This function is called  when TIM7 interrupt took place, inside
+  * HAL_TIM_IRQHandler(). It makes a direct call to HAL_IncTick() to increment
+  * a global variable "uwTick" used as application time base.
+  * @param  htim : TIM handle
+  * @retval None
+  */
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
+{
+  /* USER CODE BEGIN Callback 0 */
+
+  /* USER CODE END Callback 0 */
+  if (htim->Instance == TIM7)
+  {
+    HAL_IncTick();
+  }
+  /* USER CODE BEGIN Callback 1 */
+  if (htim == &htim6)
+  {
+    arm_task_tick();
+  }
+  /* USER CODE END Callback 1 */
 }
 
 /**

@@ -1,12 +1,12 @@
 /**
   ******************************************************************************
   * @file    mit_motor.c
-  * @brief   Unified MIT-mode motor driver (AK80-9 / AK45-10 / ...)
+  * @brief   通用 MIT 模式电机驱动（AK80-9 / AK45-10 / ...）
   ******************************************************************************
-  * Description:
-  *   - One driver for ALL MIT-mode motors on the same FDCAN bus.
-  *   - Uses a config table; adding a motor = adding one row.
-  *   - Only parses frames whose feedback-ID belongs to a configured motor.
+  * 说明：
+  *   - 使用同一个驱动管理同一 FDCAN 总线上的所有 MIT 模式电机。
+  *   - 使用配置表；新增电机只需增加一行配置。
+  *   - 只解析反馈 ID 属于已配置电机的帧。
   ******************************************************************************
   */
 #include "mit_motor.h"
@@ -19,7 +19,7 @@ uint32_t          g_mit_motor_n = 0;
 
 static mit_motor_cfg_t s_cfg[MIT_MOTOR_MAX_NUM] = {0};
 
-/* float -> unsigned int quantization */
+/* float 转无符号整数的量化 */
 static uint32_t float_to_uint(float x, float x_min, float x_max, int bits)
 {
     float span = x_max - x_min;
@@ -28,20 +28,20 @@ static uint32_t float_to_uint(float x, float x_min, float x_max, int bits)
     return (uint32_t)((x - x_min) * (float)((1 << bits) - 1) / span);
 }
 
-/* unsigned int -> float de-quantization */
+/* 无符号整数转 float 的反量化 */
 static float uint_to_float(uint32_t x, float x_min, float x_max, int bits)
 {
     float span = x_max - x_min;
     return (float)x * span / (float)((1 << bits) - 1) + x_min;
 }
 
-/* Send 8-byte command (standard frame, ID == motor ID) */
+/* 发送 8 字节命令（标准帧，ID 等于电机 ID） */
 static void mit_motor_send_cmd(FDCAN_HandleTypeDef *hfdcan, uint8_t id, uint8_t *data)
 {
     fdcan_drv_send(hfdcan, (uint32_t)id, FDCAN_STANDARD_ID, data, 8);
 }
 
-/* Register the single rx callback on the bus. */
+/* 在总线上注册唯一的接收回调。 */
 uint8_t mit_motor_init(FDCAN_HandleTypeDef *hfdcan)
 {
     g_mit_motor_n = 0;
@@ -49,7 +49,7 @@ uint8_t mit_motor_init(FDCAN_HandleTypeDef *hfdcan)
     return 0;
 }
 
-/* Find motor index by CAN ID, or -1 if not configured. */
+/* 根据 CAN ID 查找电机索引；未配置时返回 -1。 */
 int8_t mit_motor_find(uint8_t id)
 {
     uint32_t i;
@@ -60,7 +60,7 @@ int8_t mit_motor_find(uint8_t id)
     return -1;
 }
 
-/* Add one motor config. */
+/* 添加一个电机配置。 */
 int8_t mit_motor_add(const mit_motor_cfg_t *cfg)
 {
     if (g_mit_motor_n >= MIT_MOTOR_MAX_NUM) { return -1; }
@@ -71,7 +71,7 @@ int8_t mit_motor_add(const mit_motor_cfg_t *cfg)
     return (int8_t)g_mit_motor_n++;
 }
 
-/* MIT run / idle / zero commands. */
+/* MIT 运行 / 空闲 / 清零命令。 */
 void mit_motor_enable(FDCAN_HandleTypeDef *hfdcan, uint8_t id)
 {
     uint8_t data[8] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFC};
@@ -90,7 +90,7 @@ void mit_motor_zero(FDCAN_HandleTypeDef *hfdcan, uint8_t id)
     mit_motor_send_cmd(hfdcan, id, data);
 }
 
-/* MIT control command. See mit_motor.h for parameter meaning. */
+/* MIT 控制命令。参数含义见 mit_motor.h。 */
 void mit_motor_set_control(FDCAN_HandleTypeDef *hfdcan, uint8_t id,
                            float p_des, float v_des,
                            float kp, float kd, float t_ff)
@@ -103,12 +103,12 @@ void mit_motor_set_control(FDCAN_HandleTypeDef *hfdcan, uint8_t id,
     if (idx < 0) { return; }
     cfg = &s_cfg[idx];
 
-    /* apply direction sign (mounting compensation) */
+    /* 应用方向符号（安装补偿） */
     p_des *= (float)cfg->sign;
     v_des *= (float)cfg->sign;
     t_ff  *= (float)cfg->sign;
 
-    /* limit */
+    /* 限幅 */
     if (p_des < cfg->p_min) p_des = cfg->p_min;
     if (p_des > cfg->p_max) p_des = cfg->p_max;
     if (v_des < cfg->v_min) v_des = cfg->v_min;
@@ -120,14 +120,14 @@ void mit_motor_set_control(FDCAN_HandleTypeDef *hfdcan, uint8_t id,
     if (t_ff < cfg->t_min)  t_ff = cfg->t_min;
     if (t_ff > cfg->t_max)  t_ff = cfg->t_max;
 
-    /* quantize */
+    /* 量化 */
     p_int  = float_to_uint(p_des, cfg->p_min, cfg->p_max, 16);
     v_int  = float_to_uint(v_des, cfg->v_min, cfg->v_max, 12);
     kp_int = float_to_uint(kp,    cfg->kp_min, cfg->kp_max, 12);
     kd_int = float_to_uint(kd,    cfg->kd_min, cfg->kd_max, 12);
     t_int  = float_to_uint(t_ff,  cfg->t_min,  cfg->t_max,  12);
 
-    /* pack MIT frame */
+    /* 打包 MIT 帧 */
     data[0] = (uint8_t)((p_int >> 8) & 0xFF);
     data[1] = (uint8_t)(p_int & 0xFF);
     data[2] = (uint8_t)((v_int >> 4) & 0xFF);
@@ -140,7 +140,7 @@ void mit_motor_set_control(FDCAN_HandleTypeDef *hfdcan, uint8_t id,
     mit_motor_send_cmd(hfdcan, id, data);
 }
 
-/* Rx parse: only handle frames whose feedback-ID is a configured motor. */
+/* 接收解析：只处理反馈 ID 属于已配置电机的帧。 */
 void mit_motor_unpack(FDCAN_HandleTypeDef *hfdcan,
                       FDCAN_RxHeaderTypeDef *rx_header,
                       uint8_t *rx_data)
@@ -153,7 +153,7 @@ void mit_motor_unpack(FDCAN_HandleTypeDef *hfdcan,
 
     if (rx_header->IdType != FDCAN_STANDARD_ID) { return; }
 
-    /* feedback frame byte0 = motor ID */
+    /* 反馈帧第 0 字节为电机 ID */
     idx = mit_motor_find(rx_data[0]);
     if (idx < 0) { return; }
     cfg = &s_cfg[idx];
@@ -172,7 +172,7 @@ void mit_motor_unpack(FDCAN_HandleTypeDef *hfdcan,
     mit_motor_state[idx].online     = 1;
 }
 
-/* Convenience: get state by ID, or NULL. */
+/* 便捷接口：按 ID 获取状态，找不到返回 NULL。 */
 //电机状态查看函数
 mit_motor_state_t *mit_motor_get_state(uint8_t id)
 {

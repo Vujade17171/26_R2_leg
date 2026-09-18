@@ -14,7 +14,7 @@
 /* 电机侧前馈限幅，避免参数误设时输出过大。 */
 #define ARM_GRAVITY_MAX_SH_FF    3.50f
 #define ARM_GRAVITY_MAX_EL_FF    1.20f
-#define ARM_GRAVITY_RAMP_RATE    1.0f
+#define ARM_GRAVITY_RAMP_RATE    30.0f
 
 
 #define ARM_WRIST_GRAVITY_DIR    1.0f
@@ -105,8 +105,8 @@ void arm_gravity_get(float q1, float q2, float dt,
     tau_sh_motor = arm_gravity_clamp(tau_sh_motor, ARM_GRAVITY_MAX_SH_FF);
     tau_el_motor = arm_gravity_clamp(tau_el_motor, ARM_GRAVITY_MAX_EL_FF);
 
-    if (dt <= 0.0f)  { dt = 0.003f; }
-    if (dt >  0.05f) { dt = 0.003f; }
+    if (dt <= 0.0f)  { dt = 0.002f; }
+    if (dt >  0.05f) { dt = 0.002f; }
     ramp_step = ARM_GRAVITY_RAMP_RATE * dt;
 
     /* 缓慢爬升，避免修改参数后产生力矩阶跃。 */
@@ -128,8 +128,8 @@ float arm_wrist_gravity_get(float q0, float q1, float q2,
     float tau_target;
     float ramp_step;
 
-    if (dt <= 0.0f)  { dt = 0.003f; }
-    if (dt >  0.05f) { dt = 0.003f; }
+    if (dt <= 0.0f)  { dt = 0.002f; }
+    if (dt >  0.05f) { dt = 0.002f; }
 
     theta_l3 = (q0 + q1 + q2) - l3_level_c;
 

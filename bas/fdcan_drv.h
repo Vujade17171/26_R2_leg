@@ -1,7 +1,7 @@
 /**
   ******************************************************************************
   * @file    fdcan_drv.h
-  * @brief   Universal FDCAN (classic CAN) bus driver layer
+  * @brief   通用 FDCAN（经典 CAN）总线驱动层
   ******************************************************************************
   */
 #ifndef __FDCAN_DRV_H
@@ -17,19 +17,19 @@ typedef void (*fdcan_rx_cb_t)(FDCAN_HandleTypeDef *hfdcan,
                               FDCAN_RxHeaderTypeDef *rx_header,
                               uint8_t *rx_data);
 
-/* Configure filters, enable Rx/error interrupts and start the bus. */
+/* 配置滤波器、使能接收/错误中断并启动总线。 */
 uint8_t fdcan_drv_init(FDCAN_HandleTypeDef *hfdcan);
 
-/* Send one classic-CAN frame. Non-zero means the frame was not queued. */
+/* 发送一个经典 CAN 帧。非零表示该帧未能入队。 */
 uint8_t fdcan_drv_send(FDCAN_HandleTypeDef *hfdcan,
                        uint32_t id, uint32_t id_type,
                        uint8_t *data, uint8_t len);
 
-/* Call periodically from the main loop (10 ms is recommended).
-   It performs Bus-Off recovery outside the ISR. */
+/* 在主循环中周期性调用（建议 10 ms）。
+   它在 ISR 外执行 Bus-Off 恢复。 */
 void fdcan_drv_service(FDCAN_HandleTypeDef *hfdcan);
 
-/* Register a receive callback. The same callback is never registered twice. */
+/* 注册接收回调。同一回调不会重复注册。 */
 void fdcan_drv_reg_rx_cb(FDCAN_HandleTypeDef *hfdcan, fdcan_rx_cb_t cb);
 
 

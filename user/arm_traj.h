@@ -1,29 +1,33 @@
 /**
   ******************************************************************************
   * @file    arm_traj.h
-  * @brief   Quintic (5th-order) polynomial point-to-point joint trajectory
+  * @brief   五次多项式点到点关节轨迹
   ******************************************************************************
-  * Description:
-  *   - Soft-start / soft-stop between two 3-DOF joint poses.
-  *   - Outputs target position / velocity / acceleration each cycle.
+  * 说明：
+  *   - 在两个三自由度关节位姿之间实现平滑起停；
+  *   - 每个控制周期输出 3 个关节的目标位置和速度；
+  *   - 不包含正/逆运动学、CAN 通信或重力前馈。
   ******************************************************************************
   */
-#ifndef __ARM_TRAJ_H
-#define __ARM_TRAJ_H
+#ifndef ARM_TRAJ_H
+#define ARM_TRAJ_H
 
-/* start a quintic trajectory for 3 joints (q0=wrist,q1=shoulder,q2=elbow) */
-void arm_traj_start(float q0_s, float q1_s, float q2_s,
-                    float q0_e, float q1_e, float q2_e,
-                    float T_sec);
+/* 启动五次多项式轨迹（q0=腕关节，q1=肩关节，q2=肘关节）。 */
+void arm_traj_start(float q0_start, float q1_start, float q2_start,
+                    float q0_end, float q1_end, float q2_end,
+                    float duration_s);
 
-/* advance trajectory by dt seconds.
- * Return 1 when finished, 0 while running.
- * Outputs current target pos/vel/acc for the 3 joints. */
+/* 按 dt 秒推进轨迹。
+ * 运行中返回 0，轨迹完成时返回 1。
+ * 输出指针允许为 NULL；非 NULL 时写入对应的位置或速度。 */
 int arm_traj_update(float dt,
                     float *q0, float *q1, float *q2,
                     float *v0, float *v1, float *v2);
 
+/* 停止当前轨迹。 */
 void arm_traj_stop(void);
-int  arm_traj_is_active(void);
 
-#endif /* __ARM_TRAJ_H */
+/* 轨迹正在运行时返回非 0，否则返回 0。 */
+int arm_traj_is_active(void);
+
+#endif /* ARM_TRAJ_H */

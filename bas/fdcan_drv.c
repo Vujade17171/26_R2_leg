@@ -1,10 +1,10 @@
 /**
   ******************************************************************************
   * @file    fdcan_drv.c
-  * @brief   Universal FDCAN classic-CAN bus driver layer
+  * @brief   通用 FDCAN 经典 CAN 总线驱动层
   ******************************************************************************
-  * This file is the only place that owns the FDCAN receive interrupt.
-  * Motor drivers only register a callback and parse the frames for their IDs.
+  * 本文件是唯一负责 FDCAN 接收中断的位置。
+  * 电机驱动只注册回调，并按各自 ID 解析帧。
   ******************************************************************************
   */
 #include "fdcan_drv.h"
@@ -34,7 +34,7 @@ static fdcan_drv_node_t s_rx_cbs[FDCAN_DRV_MAX_RX_CB];
 static volatile uint8_t s_bus_off_pending = 0U;
 static uint32_t         s_last_recover_tick = 0U;
 
-/* Configure filters and interrupt sources. The peripheral must be in READY. */
+/* 配置滤波器和中断源。外设必须处于 READY 状态。 */
 static uint8_t fdcan_drv_configure(FDCAN_HandleTypeDef *hfdcan)
 {
     FDCAN_FilterTypeDef filter = {0};
@@ -44,7 +44,7 @@ static uint8_t fdcan_drv_configure(FDCAN_HandleTypeDef *hfdcan)
         return 1U;
     }
 
-    /* Standard classic-CAN frames go to FIFO0. */
+    /* 标准经典 CAN 帧进入 FIFO0。 */
     filter.IdType       = FDCAN_STANDARD_ID;
     filter.FilterIndex  = 0U;
     filter.FilterType   = FDCAN_FILTER_MASK;
@@ -56,7 +56,7 @@ static uint8_t fdcan_drv_configure(FDCAN_HandleTypeDef *hfdcan)
         return 1U;
     }
 
-    /* Extended frames (EL05) also go to FIFO0. */
+    /* 扩展帧（EL05）也进入 FIFO0。 */
     filter.IdType       = FDCAN_EXTENDED_ID;
     filter.FilterIndex  = 0U;
     filter.FilterType   = FDCAN_FILTER_MASK;
@@ -68,8 +68,8 @@ static uint8_t fdcan_drv_configure(FDCAN_HandleTypeDef *hfdcan)
         return 1U;
     }
 
-    /* Also accept non-matching frames in FIFO0. This makes the bus layer
-       independent of motor IDs. Each motor callback does its own ID check. */
+    /* 同时在 FIFO0 接收不匹配的帧。这样总线层
+       与电机 ID 解耦，各电机回调自行检查 ID。 */
     if (HAL_FDCAN_ConfigGlobalFilter(hfdcan,
                                      FDCAN_ACCEPT_IN_RX_FIFO0,
                                      FDCAN_ACCEPT_IN_RX_FIFO0,
@@ -96,7 +96,7 @@ static uint8_t fdcan_drv_configure(FDCAN_HandleTypeDef *hfdcan)
     return 0U;
 }
 
-/* Init, configure and start FDCAN. */
+/* 初始化、配置并启动 FDCAN。 */
 uint8_t fdcan_drv_init(FDCAN_HandleTypeDef *hfdcan)
 {
     if (hfdcan == NULL)
@@ -119,7 +119,7 @@ uint8_t fdcan_drv_init(FDCAN_HandleTypeDef *hfdcan)
     return 0U;
 }
 
-/* Send one classic-CAN frame. */
+/* 发送一个经典 CAN 帧。 */
 uint8_t fdcan_drv_send(FDCAN_HandleTypeDef *hfdcan,
                        uint32_t id, uint32_t id_type,
                        uint8_t *data, uint8_t len)
@@ -164,7 +164,7 @@ uint8_t fdcan_drv_send(FDCAN_HandleTypeDef *hfdcan,
     return 0U;
 }
 
-/* Register one receive callback. Duplicate registration is ignored. */
+/* 注册一个接收回调。重复注册会被忽略。 */
 void fdcan_drv_reg_rx_cb(FDCAN_HandleTypeDef *hfdcan, fdcan_rx_cb_t cb)
 {
     uint32_t i;
@@ -190,13 +190,13 @@ void fdcan_drv_reg_rx_cb(FDCAN_HandleTypeDef *hfdcan, fdcan_rx_cb_t cb)
         {
             s_rx_cbs[i].hfdcan = hfdcan;
             s_rx_cbs[i].cb     = cb;
-            s_rx_cbs[i].used   = 1U; /* publish last, ISR may read it */
+            s_rx_cbs[i].used   = 1U; /* 最后发布，ISR 可能读取它 */
             return;
         }
     }
 }
 
-/* Main-loop service: recover from Bus-Off outside the ISR. */
+/* 主循环服务：在 ISR 外恢复 Bus-Off。 */
 void fdcan_drv_service(FDCAN_HandleTypeDef *hfdcan)
 {
     uint32_t now;
@@ -253,7 +253,7 @@ void fdcan_drv_service(FDCAN_HandleTypeDef *hfdcan)
     s_bus_off_pending = 0U;
 }
 
-/* HAL weak callback override: drain FIFO0, then dispatch every frame. */
+/* HAL 弱回调重写：清空 FIFO0，然后分发每一帧。 */
 void HAL_FDCAN_RxFifo0Callback(FDCAN_HandleTypeDef *hfdcan, uint32_t RxFifo0ITs)
 {
     uint32_t active;
@@ -294,7 +294,7 @@ void HAL_FDCAN_RxFifo0Callback(FDCAN_HandleTypeDef *hfdcan, uint32_t RxFifo0ITs)
     }
 }
 
-/* HAL weak callback override: mark Bus-Off; recovery runs in service. */
+/* HAL 弱回调重写：标记 Bus-Off；恢复在主循环服务中执行。 */
 void HAL_FDCAN_ErrorStatusCallback(FDCAN_HandleTypeDef *hfdcan,
                                    uint32_t ErrorStatusITs)
 {

@@ -9,7 +9,6 @@ extern volatile float arm_gravity_scale;          /* ×Ü²¹³¥±ÈÀı£¬1.0=°´Ä£ĞÍÂú²¹³
 extern volatile float arm_gravity_shoulder_dir;   /* ¼ç¹Ø½Ú·½Ïò£¬Ö»ÔÊĞí +1/-1 */
 extern volatile float arm_gravity_elbow_dir;      /* Öâ¹Ø½Ú·½Ïò£¬Ö»ÔÊĞí +1/-1 */
 
-/* ²Î¿¼¹¤³ÌÍâ²¿¼õËÙ±È¡£ÏÈ°´ 7.5 ²âÊÔ£¬¿ÉÔÚ Watch ÖĞĞŞ¸Ä¡£ */
 extern volatile float arm_gravity_gear_sh;
 extern volatile float arm_gravity_gear_el;
 
@@ -26,10 +25,10 @@ void arm_gravity_get(float q1, float q2, float dt,
                      float *tau_shoulder_motor,
                      float *tau_elbow_motor);
 
-/* Us‚YÍ›MˆÕ)>ûp */
+/* Íó¹Ø½Ú¾²Ì¬ÖØÁ¦²¹³¥±ÈÀı¡£ */
 extern volatile float arm_wrist_gravity_scale;
 
-/* ¡—Us‚YÍ›Mˆ›é */
+/* ¼ÆËãÍó¹Ø½Ú¾²Ì¬ÖØÁ¦Ç°À¡Á¦¾Ø¡£ */
 float arm_wrist_gravity_get(float q0, float q1, float q2,
                             float l3_level_c, float dt);
 

@@ -1,7 +1,7 @@
 /**
   ******************************************************************************
   * @file    robstride.c
-  * @brief   RobStride (Lingzu-05) motor driver - CAN 2.0 extended frame
+  * @brief   RobStride（灵足-05）电机驱动 —— CAN 2.0 扩展帧
   ******************************************************************************
   */
 #include "robstride.h"
@@ -15,7 +15,7 @@ uint32_t          g_robstride_n = 0;
 
 static robstride_cfg_t s_cfg[ROBSTRIDE_MAX_NUM] = {0};
 
-/* float -> unsigned int quantization */
+/* float 转无符号整数的量化 */
 static uint32_t float_to_uint(float x, float x_min, float x_max, int bits)
 {
     float span = x_max - x_min;
@@ -24,20 +24,20 @@ static uint32_t float_to_uint(float x, float x_min, float x_max, int bits)
     return (uint32_t)((x - x_min) * (float)((1 << bits) - 1) / span);
 }
 
-/* unsigned int -> float de-quantization */
+/* 无符号整数转 float 的反量化 */
 static float uint_to_float(uint32_t x, float x_min, float x_max, int bits)
 {
     float span = x_max - x_min;
     return (float)x * span / (float)((1 << bits) - 1) + x_min;
 }
 
-/* Build 29-bit extended ID: [com_type<<24][mid<<8][id] */
+/* 构建 29 位扩展 ID：[com_type<<24][mid<<8][id] */
 static uint32_t robstride_build_id(uint32_t com_type, uint32_t mid, uint8_t id)
 {
     return ((com_type & 0x1F) << 24) | ((mid & 0xFFFF) << 8) | (uint32_t)id;
 }
 
-/* Register the single rx callback on the bus. */
+/* 在总线上注册唯一的接收回调。 */
 uint8_t robstride_init(FDCAN_HandleTypeDef *hfdcan)
 {
     g_robstride_n = 0;
@@ -45,7 +45,7 @@ uint8_t robstride_init(FDCAN_HandleTypeDef *hfdcan)
     return 0;
 }
 
-/* Find motor index by CAN ID, or -1. */
+/* 根据 CAN ID 查找电机索引；找不到返回 -1。 */
 int8_t robstride_find(uint8_t id)
 {
     uint32_t i;
@@ -56,7 +56,7 @@ int8_t robstride_find(uint8_t id)
     return -1;
 }
 
-/* Add one motor config. */
+/* 添加一个电机配置。 */
 int8_t robstride_add(const robstride_cfg_t *cfg)
 {
     if (g_robstride_n >= ROBSTRIDE_MAX_NUM) { return -1; }
@@ -67,7 +67,7 @@ int8_t robstride_add(const robstride_cfg_t *cfg)
     return (int8_t)g_robstride_n++;
 }
 
-/* Enable (com_type 0x03): data area all zero. */
+/* 使能（com_type 0x03）：数据区全为 0。 */
 void robstride_enable(FDCAN_HandleTypeDef *hfdcan, uint8_t id)
 {
     int8_t idx = robstride_find(id);
@@ -78,7 +78,7 @@ void robstride_enable(FDCAN_HandleTypeDef *hfdcan, uint8_t id)
     fdcan_drv_send(hfdcan, ident, FDCAN_EXTENDED_ID, data, 8);
 }
 
-/* Stop (com_type 0x04): byte0 = clear_error. */
+/* 停止（com_type 0x04）：byte0 为 clear_error。 */
 void robstride_disable(FDCAN_HandleTypeDef *hfdcan, uint8_t id, uint8_t clear_error)
 {
     int8_t idx = robstride_find(id);
@@ -90,7 +90,7 @@ void robstride_disable(FDCAN_HandleTypeDef *hfdcan, uint8_t id, uint8_t clear_er
     fdcan_drv_send(hfdcan, ident, FDCAN_EXTENDED_ID, data, 8);
 }
 
-/* Zero (com_type 0x06): byte0 = 1. */
+/* 清零（com_type 0x06）：byte0 = 1。 */
 void robstride_zero(FDCAN_HandleTypeDef *hfdcan, uint8_t id)
 {
     int8_t idx = robstride_find(id);
@@ -102,7 +102,7 @@ void robstride_zero(FDCAN_HandleTypeDef *hfdcan, uint8_t id)
     fdcan_drv_send(hfdcan, ident, FDCAN_EXTENDED_ID, data, 8);
 }
 
-/* Control command (com_type 0x01). */
+/* 控制命令（com_type 0x01）。 */
 void robstride_set_control(FDCAN_HandleTypeDef *hfdcan, uint8_t id,
                            float torque, float angle,
                            float speed, float kp, float kd)
@@ -116,12 +116,12 @@ void robstride_set_control(FDCAN_HandleTypeDef *hfdcan, uint8_t id,
     if (idx < 0) { return; }
     cfg = &s_cfg[idx];
 
-    /* direction sign */
+    /* 方向符号 */
     torque *= (float)cfg->sign;
     angle  *= (float)cfg->sign;
     speed  *= (float)cfg->sign;
 
-    /* limit */
+    /* 限幅 */
     if (torque < cfg->t_min) torque = cfg->t_min;
     if (torque > cfg->t_max) torque = cfg->t_max;
     if (angle  < cfg->p_min) angle  = cfg->p_min;
@@ -133,25 +133,25 @@ void robstride_set_control(FDCAN_HandleTypeDef *hfdcan, uint8_t id,
     if (kd < cfg->kd_min)    kd     = cfg->kd_min;
     if (kd > cfg->kd_max)    kd     = cfg->kd_max;
 
-    /* quantize (all 16-bit) */
+    /* 量化（均为 16 位） */
     tq  = (uint16_t)float_to_uint(torque, cfg->t_min, cfg->t_max, 16);
     p   = (uint16_t)float_to_uint(angle,  cfg->p_min, cfg->p_max, 16);
     v   = (uint16_t)float_to_uint(speed,  cfg->v_min, cfg->v_max, 16);
     kpi = (uint16_t)float_to_uint(kp,     cfg->kp_min,cfg->kp_max,16);
     kdi = (uint16_t)float_to_uint(kd,     cfg->kd_min,cfg->kd_max,16);
 
-    /* data area: angle / speed / kp / kd */
+    /* 数据区：角度 / 速度 / kp / kd */
     data[0] = (uint8_t)(p >> 8);   data[1] = (uint8_t)(p & 0xFF);
     data[2] = (uint8_t)(v >> 8);   data[3] = (uint8_t)(v & 0xFF);
     data[4] = (uint8_t)(kpi >> 8); data[5] = (uint8_t)(kpi & 0xFF);
     data[6] = (uint8_t)(kdi >> 8); data[7] = (uint8_t)(kdi & 0xFF);
 
-    /* torque goes into the ID bits 23..8 */
+    /* 力矩放在 ID 的第 23..8 位 */
     ident = robstride_build_id(0x01, (uint32_t)tq, id);
     fdcan_drv_send(hfdcan, ident, FDCAN_EXTENDED_ID, data, 8);
 }
 
-/* Rx parse: only handle com_type == 2 (motor feedback). */
+/* 接收解析：只处理 com_type == 2（电机反馈）。 */
 void robstride_unpack(FDCAN_HandleTypeDef *hfdcan,
                       FDCAN_RxHeaderTypeDef *rx_header,
                       uint8_t *rx_data)
@@ -169,9 +169,9 @@ void robstride_unpack(FDCAN_HandleTypeDef *hfdcan,
     if (rx_header->IdType != FDCAN_EXTENDED_ID) { return; }
     ident = rx_header->Identifier;
     com   = (ident & 0x3F000000) >> 24;
-    if (com != 2) { return; }               /* only motor feedback */
+    if (com != 2) { return; }               /* 只处理电机反馈 */
 
-    fid = (uint8_t)((ident & 0xFF00) >> 8); /* motor ID in bits 15..8 */
+    fid = (uint8_t)((ident & 0xFF00) >> 8); /* 电机 ID 位于第 15..8 位 */
     idx = robstride_find(fid);
     if (idx < 0) { return; }
     cfg = &s_cfg[idx];
@@ -192,7 +192,7 @@ void robstride_unpack(FDCAN_HandleTypeDef *hfdcan,
     robstride_state[idx].online  = 1;
 }
 
-/* Convenience: get state by ID, or NULL. */
+/* 便捷接口：按 ID 获取状态，找不到返回 NULL。 */
 robstride_state_t *robstride_get_state(uint8_t id)
 {
     int8_t idx = robstride_find(id);
