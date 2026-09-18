@@ -42,7 +42,7 @@ extern volatile float    arm_target[3];   /* cart:(x,z,yaw) */
 extern volatile uint8_t  arm_cmd_new;     /* set 1 to run new target */
 
 void arm_init(FDCAN_HandleTypeDef *hfdcan);
-void arm_run(void);                 /* call every ~10 ms */
+void arm_run(void);                 /* called by the 3 ms control tick */
 int  arm_goto(float x, float z, float yaw);
 
 #endif /* __ARM_CONTROL_H */

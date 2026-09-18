@@ -20,11 +20,8 @@
 #include "arm_kinematics.h"
 #include "arm_traj.h"
 #include "arm_gravity.h"
+#include "arm_l3_level.h"
 #include <math.h>
-
-#ifndef M_PI
-#define M_PI 3.14159265358979323846f
-#endif
 
 extern FDCAN_HandleTypeDef hfdcan1;
 
@@ -57,9 +54,6 @@ extern FDCAN_HandleTypeDef hfdcan1;
  * Enforcing the known 1:1 wrist relation q0 = c - (q1 + q2)
  * gives c = 2.920211 rad.
  */
-#define ARM_L3_LEVEL_C           2.9202114f
-#define ARM_L3_MAX_SPEED         4.0f
-#define ARM_L3_MAX_STEP_RAD      0.04f
 
 /* ---- debug globals (watch in Keil) ---- */
 arm_dbg_t arm_dbg = {0};
@@ -69,14 +63,11 @@ volatile uint8_t  arm_cmd_new  = 0;
 
 static FDCAN_HandleTypeDef *s_hfdcan = NULL;
 static uint32_t s_last_tick = 0;
-static float    s_dt        = 0.01f;
+static float    s_dt        = 0.003f;
 static uint8_t  s_inited    = 0;
 static uint8_t  s_target_set = 0;   /* 0 until first target command */
 static uint8_t  s_fault     = 0;    /* 1 = safety stop latched */
-static uint32_t s_last_run_ms = 0;
 static uint32_t s_next_el05_enable_ms = 0;
-static float    s_q0_cmd = 0.0f;
-static uint8_t  s_l3_level_active = 0U;
 
 /* live joint state (feedback converted to joint angles) */
 static float s_cur_joint[3] = {0, 0, 0};   /* q0,wrist q1,shoulder q2,elbow */
@@ -198,31 +189,6 @@ static void arm_refresh_feedback(void)
 
 }
 
-/* Keep the L3 axis level while q1/q2 move. */
-static float arm_l3_level_target(float q1, float q2, float q0_ref)
-{
-    float q0 = ARM_L3_LEVEL_C - (q1 + q2);
-
-    while ((q0 - q0_ref) > M_PI)  { q0 -= 2.0f * M_PI; }
-    while ((q0 - q0_ref) < -M_PI) { q0 += 2.0f * M_PI; }
-    arm_clamp_joints(&q0, NULL, NULL);
-    return q0;
-}
-
-static float arm_limit_value(float v, float lo, float hi)
-{
-    return (v < lo) ? lo : ((v > hi) ? hi : v);
-}
-
-static float arm_slew_limit(float target, float current, float max_step)
-{
-    float d = target - current;
-
-    if (d >  max_step) { d =  max_step; }
-    if (d < -max_step) { d = -max_step; }
-    return current + d;
-}
-
 /* -------- send control to the 3 motors -------- */
 static void arm_send_motors(float q0, float q1, float q2,
                             float v0, float v1, float v2)
@@ -231,13 +197,19 @@ static void arm_send_motors(float q0, float q1, float q2,
     float m2 = arm_joint_to_motor_2(q2);
     float tau_sh = 0.0f;
     float tau_el = 0.0f;
+    float tau_wrist_ff = 0.0f;
 
-    arm_gravity_get(s_cur_joint[1], s_cur_joint[2], &tau_sh, &tau_el);
+    arm_gravity_get(s_cur_joint[1], s_cur_joint[2], s_dt, &tau_sh, &tau_el);
+    tau_wrist_ff = arm_wrist_gravity_get(s_cur_joint[0],
+                                         s_cur_joint[1],
+                                         s_cur_joint[2],
+                                         ARM_L3_LEVEL_C,
+                                         s_dt);
 
     /* Send EL05 first so the two AK frames cannot fill the Tx FIFO and starve it. */
     if (HAL_FDCAN_GetTxFifoFreeLevel(s_hfdcan) != 0U)
     {
-        robstride_set_control(s_hfdcan, ARM_M3_ID, 0.0f, q0, v0,
+        robstride_set_control(s_hfdcan, ARM_M3_ID, tau_wrist_ff, q0, v0,
                               ARM_KP_WRIST, ARM_KD_WRIST);
     }
     if (HAL_FDCAN_GetTxFifoFreeLevel(s_hfdcan) != 0U)
@@ -279,7 +251,7 @@ void arm_init(FDCAN_HandleTypeDef *hfdcan)
     s_fault   = 0U;
     s_target_set = 0U;
     arm_cmd_new = 0U;
-    s_l3_level_active = 0U;
+    arm_l3_level_stop();
     s_last_tick = HAL_GetTick();
     arm_traj_stop();
 
@@ -328,7 +300,7 @@ void arm_init(FDCAN_HandleTypeDef *hfdcan)
     s_tgt_joint[0] = s_cur_joint[0];
     s_tgt_joint[1] = s_cur_joint[1];
     s_tgt_joint[2] = s_cur_joint[2];
-    s_q0_cmd = s_cur_joint[0];
+    arm_l3_level_init(s_cur_joint[0]);
     arm_dbg.x = arm_dbg.x_actual;
     arm_dbg.z = arm_dbg.z_actual;
 
@@ -336,7 +308,7 @@ void arm_init(FDCAN_HandleTypeDef *hfdcan)
 
     arm_dbg.reached      = 0U;
     arm_dbg.last_err = 0;
-    s_last_run_ms = HAL_GetTick();
+    s_last_tick = HAL_GetTick();
     s_fault  = 0U;
     s_inited = 1U;
 }
@@ -362,8 +334,7 @@ int arm_goto(float x, float z, float yaw)
 
     arm_traj_start(s_cur_joint[0], s_cur_joint[1], s_cur_joint[2],
                    q0, q1, q2, ARM_TRAJ_TIME);
-    s_l3_level_active = 1U;
-    s_q0_cmd = s_cur_joint[0];
+    arm_l3_level_start(s_cur_joint[0]);
     s_tgt_joint[0] = q0;
     s_tgt_joint[1] = q1;
     s_tgt_joint[2] = q2;
@@ -374,7 +345,7 @@ int arm_goto(float x, float z, float yaw)
     return 0;
 }
 
-/* -------- public: periodic run (~10 ms) -------- */
+/* -------- public: periodic run (3 ms TIM6 tick) -------- */
 void arm_run(void)
 {
     uint32_t now;
@@ -385,13 +356,12 @@ void arm_run(void)
     int done = 0;
 //三个关节之间的误差
     float err0, err1, err2;
+    float l3_max_step;
 //如果初始化失败就返回
     if (s_hfdcan != NULL) { fdcan_drv_service(s_hfdcan); }
     if (!s_inited) { return; }
 
     now = HAL_GetTick();
-    if ((uint32_t)(now - s_last_run_ms) < 10U) { return; }
-    s_last_run_ms = now;
 
     if ((int32_t)(now - s_next_el05_enable_ms) >= 0)
     {
@@ -404,8 +374,10 @@ void arm_run(void)
 //上一次run执行的时间
     if (s_last_tick) { s_dt = (float)(now - s_last_tick) * 0.001f; }
     s_last_tick = now;
-    if (s_dt <= 0.0f)  { s_dt = 0.01f; }
-    if (s_dt >  0.05f) { s_dt = 0.01f; }
+    if (s_dt <= 0.0f)  { s_dt = 0.003f; }
+    if (s_dt >  0.05f) { s_dt = 0.003f; }
+
+    l3_max_step = ARM_L3_MAX_SPEED * s_dt;
 
     /* update feedback and stop immediately if a channel is unhealthy */
     arm_refresh_feedback();
@@ -428,17 +400,13 @@ void arm_run(void)
     {
         done = arm_traj_update(s_dt, &q0, &q1, &q2, &v0, &v1, &v2);
 
-        if (s_l3_level_active != 0U)
+        if (arm_l3_level_is_active() != 0U)
         {
-            q0 = arm_l3_level_target(q1, q2, s_q0_cmd);
-            q0 = arm_slew_limit(q0, s_q0_cmd, ARM_L3_MAX_STEP_RAD);
-            s_q0_cmd = q0;
-            v0 = arm_limit_value(-(v1 + v2),
-                                 -ARM_L3_MAX_SPEED, ARM_L3_MAX_SPEED);
+            q0 = arm_l3_level_update(q1, q2, v1, v2,
+                                     l3_max_step, &v0);
         }
 
         arm_clamp_joints(&q0, &q1, &q2);
-        if (s_l3_level_active != 0U) { s_q0_cmd = q0; }
         arm_send_motors(q0, q1, q2, v0, v1, v2);
 
         arm_dbg.joint[0].target = q1;
@@ -459,15 +427,16 @@ void arm_run(void)
             s_tgt_joint[0] = s_cur_joint[0];
             s_tgt_joint[1] = s_cur_joint[1];
             s_tgt_joint[2] = s_cur_joint[2];
-            s_q0_cmd = s_cur_joint[0];
+            arm_l3_level_set_q0_cmd(s_cur_joint[0]);
         }
-        else if (s_l3_level_active != 0U)
+        else if (arm_l3_level_is_active() != 0U)
         {
-            float q0_hold = arm_l3_level_target(s_tgt_joint[1],
-                                                s_tgt_joint[2], s_q0_cmd);
-            q0_hold = arm_slew_limit(q0_hold, s_q0_cmd, ARM_L3_MAX_STEP_RAD);
+            float q0_hold = arm_l3_level_update(s_tgt_joint[1],
+                                                s_tgt_joint[2],
+                                                0.0f, 0.0f,
+                                                l3_max_step,
+                                                NULL);
             arm_clamp_joints(&q0_hold, NULL, NULL);
-            s_q0_cmd = q0_hold;
             s_tgt_joint[0] = q0_hold;
         }
         arm_send_motors(s_tgt_joint[0], s_tgt_joint[1], s_tgt_joint[2],

@@ -19,6 +19,7 @@
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
 #include "fdcan.h"
+#include "tim.h"
 #include "gpio.h"
 
 /* Private includes ----------------------------------------------------------*/
@@ -45,6 +46,8 @@
 /* Private variables ---------------------------------------------------------*/
 
 /* USER CODE BEGIN PV */
+volatile uint8_t g_control_tick = 0U;
+volatile uint32_t g_control_overrun_count = 0U;
 
 /* USER CODE END PV */
 
@@ -93,8 +96,14 @@ int main(void)
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
   MX_FDCAN1_Init();
+  MX_TIM6_Init();
   /* USER CODE BEGIN 2 */
   arm_init(&hfdcan1);
+
+  if (HAL_TIM_Base_Start_IT(&htim6) != HAL_OK)
+  {
+    Error_Handler();
+  }
 
   /* USER CODE END 2 */
 
@@ -105,7 +114,19 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-    arm_run();
+    if (g_control_tick != 0U)
+    {
+      uint32_t primask = __get_PRIMASK();
+
+      __disable_irq();
+      g_control_tick = 0U;
+      if (primask == 0U)
+      {
+        __enable_irq();
+      }
+
+      arm_run();
+    }
   }
   /* USER CODE END 3 */
 }
@@ -169,6 +190,18 @@ void SystemClock_Config(void)
 }
 
 /* USER CODE BEGIN 4 */
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
+{
+  if (htim == &htim6)
+  {
+    if (g_control_tick != 0U)
+    {
+      g_control_overrun_count++;
+    }
+
+    g_control_tick = 1U;
+  }
+}
 
 /* USER CODE END 4 */
 

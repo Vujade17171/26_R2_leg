@@ -22,8 +22,15 @@ extern volatile float arm_gravity_tau_elbow_motor;
  * ÊäÈëµ±Ç°¼ç¹Ø½Ú q1¡¢Öâ¹Ø½Ú q2£¨rad£©¡£
  * Êä³ö×îÖÕ·¢ËÍ¸ø AK80-9¡¢AK45-10 µÄµç»ú²àÇ°À¡Á¦¾Ø£¨Nm£©¡£
  */
-void arm_gravity_get(float q1, float q2,
+void arm_gravity_get(float q1, float q2, float dt,
                      float *tau_shoulder_motor,
                      float *tau_elbow_motor);
+
+/* Us‚YÍ›MˆÕ)>ûp */
+extern volatile float arm_wrist_gravity_scale;
+
+/* ¡—Us‚YÍ›Mˆ›é */
+float arm_wrist_gravity_get(float q0, float q1, float q2,
+                            float l3_level_c, float dt);
 
 #endif /* __ARM_GRAVITY_H */
