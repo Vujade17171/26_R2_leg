@@ -36,6 +36,7 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
+#define ARM_TASK_STACK_SIZE  (1024U * 4U)
 
 /* USER CODE END PD */
 
@@ -46,6 +47,14 @@
 
 /* Private variables ---------------------------------------------------------*/
 /* USER CODE BEGIN Variables */
+osThreadId_t Arm_TaskHandle;
+
+const osThreadAttr_t Arm_Task_attributes =
+{
+    .name = "Arm_Task",
+    .stack_size = ARM_TASK_STACK_SIZE,
+    .priority = (osPriority_t)osPriorityHigh,
+};
 
 /* USER CODE END Variables */
 /* Private function prototypes -----------------------------------------------*/
@@ -82,8 +91,12 @@ void MX_FREERTOS_Init(void) {
   /* USER CODE END RTOS_QUEUES */
 
   /* USER CODE BEGIN RTOS_THREADS */
-  /* 在 RTOS 调度器启动前创建机械臂控制任务。 */
-  arm_task_start();
+  /* 创建机械臂控制任务。 */
+  Arm_TaskHandle = osThreadNew(arm_task, NULL, &Arm_Task_attributes);
+  if (Arm_TaskHandle == NULL)
+  {
+    Error_Handler();
+  }
   /* USER CODE END RTOS_THREADS */
 
   /* USER CODE BEGIN RTOS_EVENTS */

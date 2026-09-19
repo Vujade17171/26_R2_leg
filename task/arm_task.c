@@ -35,27 +35,34 @@
 #define ARM_M2_ID   2   /* AK45-10 肘关节 */
 #define ARM_M3_ID   3   /* 灵足-05 腕关节 */
 
-/* ---- 控制器增益 ---- */
-#define ARM_KP_SHOULDER  130.0f
-#define ARM_KD_SHOULDER  1.40f
-#define ARM_KP_ELBOW     150.0f
-#define ARM_KD_ELBOW     1.5f
-#define ARM_KP_WRIST     100.0f
-#define ARM_KD_WRIST     1.0f
-
 /* ---- 轨迹与保持 ---- */
 #define ARM_TRAJ_TIME    1.0f    /* s，默认点到点运动时长 */
-#define ARM_POS_TOL      0.02f   /* rad，到位容差 */
 
 /* ---- 控制周期 ---- */
-#define ARM_CONTROL_PERIOD_MS   2U
+#define ARM_CONTROL_PERIOD_MS   2
 #define ARM_CONTROL_DT          ((float)ARM_CONTROL_PERIOD_MS * 0.001f)
 
 /* ---- 启动与运行安全 ---- */
-#define ARM_STARTUP_TIMEOUT_MS   3000U
-#define ARM_EL05_ENABLE_RETRY_MS 200U
-#define ARM_FEEDBACK_TIMEOUT_MS  200U
-#define ARM_TEMP_LIMIT_C         80.0f
+#define ARM_STARTUP_TIMEOUT_MS       3000U
+#define ARM_EL05_ENABLE_ACK_MS        100U
+#define ARM_EL05_ENABLE_MAX_TRIES       3U
+#define ARM_FEEDBACK_TIMEOUT_MS       200U
+
+/* 连续发送失败达到该时间后进入安全停机。 */
+#define ARM_TX_FAULT_TIME_MS          100U
+#define ARM_TX_FAULT_CYCLES           (ARM_TX_FAULT_TIME_MS / ARM_CONTROL_PERIOD_MS)
+
+/*
+ * 反馈力矩过载保护：
+ * 连续 100 ms 超过对应关节限值才判定为故障，避免瞬时噪声造成误停机。
+ */
+#define ARM_TORQUE_LIMIT_SHOULDER  12.0f
+#define ARM_TORQUE_LIMIT_ELBOW      6.0f
+#define ARM_TORQUE_LIMIT_WRIST      4.5f
+#define ARM_TORQUE_FAULT_TIME_MS   100U
+#define ARM_TORQUE_FAULT_CYCLES    (ARM_TORQUE_FAULT_TIME_MS / ARM_CONTROL_PERIOD_MS)
+
+/* 温度字段仅用于调试观察，不参与故障判断。 */
 
 /* arm_dbg.joint[] 的显示顺序与内部关节编号不同：肩、肘、腕 */
 enum
@@ -68,17 +75,26 @@ enum
 /* ---- 调试全局变量（在 Keil Watch 中查看） ---- */
 arm_dbg_t arm_dbg = {0};
 
+/* 可在 Keil Watch 中在线修改的电机增益，默认值保持不变。 */
+volatile float arm_kp_shoulder = 150.0f;
+volatile float arm_kd_shoulder = 1.40f;
+volatile float arm_kp_elbow    = 150.0f;
+volatile float arm_kd_elbow    = 1.50f;
+volatile float arm_kp_wrist    = 100.0f;
+volatile float arm_kd_wrist    = 1.00f;
+
+
 volatile float   arm_target[3] = {0.35f, 0.25f, 0.0f};  /* x、z、偏航角 */
 volatile uint8_t arm_cmd_new = 0U;
 
 /* ---- 控制器内部状态 ---- */
 static FDCAN_HandleTypeDef *s_hfdcan = NULL;
-static uint32_t s_last_tick = 0U;
-static float    s_dt = ARM_CONTROL_DT;
 static uint8_t  s_inited = 0U;
 static uint8_t  s_target_set = 0U;  /* 收到第一次目标命令前为 0 */
-static uint8_t  s_fault = 0U;       /* 1 表示安全停机已锁存 */
-static uint32_t s_next_el05_enable_ms = 0U;
+/* 三个电机的反馈力矩过载连续计数，单位：控制周期数 */
+static uint16_t s_torque_over_count[3] = {0U, 0U, 0U};
+/* 任意控制帧连续发送失败的周期数。 */
+static uint16_t s_tx_fail_count = 0U;
 
 /* 实时关节状态：q0=腕，q1=肩，q2=肘，单位均为 rad */
 static float s_cur_joint[3] = {0.0f, 0.0f, 0.0f};
@@ -86,6 +102,7 @@ static float s_tgt_joint[3] = {0.0f, 0.0f, 0.0f};
 
 /* ============================== 电机配置 =============================== */
 
+/* 配置 FDCAN、注册三个电机并设置各关节的控制参数。 */
 static uint8_t arm_setup_motors(FDCAN_HandleTypeDef *hfdcan)
 {
     mit_motor_cfg_t mcfg;
@@ -111,8 +128,9 @@ static uint8_t arm_setup_motors(FDCAN_HandleTypeDef *hfdcan)
     mcfg.id = ARM_M1_ID;
     mcfg.p_min = -12.5f;
     mcfg.p_max = 12.5f;
-    mcfg.v_min = -50.0f;
-    mcfg.v_max = 50.0f;
+    /* 与示例工程一致：AK80-9 的速度范围是 ±65 rad/s。 */
+    mcfg.v_min = -65.0f;
+    mcfg.v_max = 65.0f;
     mcfg.t_min = -18.0f;
     mcfg.t_max = 18.0f;
     mcfg.kp_min = 0.0f;
@@ -156,7 +174,7 @@ static uint8_t arm_setup_motors(FDCAN_HandleTypeDef *hfdcan)
     rcfg.kd_min = 0.0f;
     rcfg.kd_max = 5.0f;
     rcfg.sign = -1;
-    rcfg.master_id = 0xFFU;
+    rcfg.master_id = 0x11U;
     if (robstride_add(&rcfg) < 0)
     {
         return 1U;
@@ -167,6 +185,7 @@ static uint8_t arm_setup_motors(FDCAN_HandleTypeDef *hfdcan)
 
 /* ============================== 反馈处理 =============================== */
 
+/* 读取三个电机的实时位置，并更新内部关节角和调试显示。 */
 static void arm_refresh_feedback(void)
 {
     mit_motor_state_t *st1 = mit_motor_get_state(ARM_M1_ID);
@@ -196,45 +215,50 @@ static void arm_refresh_feedback(void)
                 &arm_dbg.x_actual, &arm_dbg.z_actual);
 }
 
+/* 检查单个 AK 电机的在线、反馈和错误状态。 */
+static uint8_t arm_mit_feedback_ready(const mit_motor_state_t *st, uint32_t now)
+{
+    if (st == NULL)
+    {
+        return 0U;
+    }
+    if ((st->online == 0U) ||
+        ((uint32_t)(now - st->last_rx_ms) > ARM_FEEDBACK_TIMEOUT_MS) ||
+        (st->error != 0U))
+    {
+        return 0U;
+    }
+    return 1U;
+}
+
+/* 检查单个 RobStride 电机的在线、反馈和错误状态。 */
+static uint8_t arm_robstride_feedback_ready(const robstride_state_t *st,
+                                            uint32_t now)
+{
+    if (st == NULL)
+    {
+        return 0U;
+    }
+    if ((st->online == 0U) ||
+        ((uint32_t)(now - st->last_rx_ms) > ARM_FEEDBACK_TIMEOUT_MS) ||
+        (st->error != 0U) ||
+        (st->pattern != 2U))
+    {
+        return 0U;
+    }
+    return 1U;
+}
+
+/* 检查三个关节电机的反馈是否全部正常；任一异常时返回 0，禁止继续控制。 */
 static uint8_t arm_feedback_ready(uint32_t now)
 {
     mit_motor_state_t *st1 = mit_motor_get_state(ARM_M1_ID);
     mit_motor_state_t *st2 = mit_motor_get_state(ARM_M2_ID);
     robstride_state_t *st3 = robstride_get_state(ARM_M3_ID);
 
-    if ((st1 == NULL) || (st2 == NULL) || (st3 == NULL))
-    {
-        return 0U;
-    }
-    if ((st1->online == 0U) || (st2->online == 0U) || (st3->online == 0U))
-    {
-        return 0U;
-    }
-    if ((uint32_t)(now - st1->last_rx_ms) > ARM_FEEDBACK_TIMEOUT_MS)
-    {
-        return 0U;
-    }
-    if ((uint32_t)(now - st2->last_rx_ms) > ARM_FEEDBACK_TIMEOUT_MS)
-    {
-        return 0U;
-    }
-    if ((uint32_t)(now - st3->last_rx_ms) > ARM_FEEDBACK_TIMEOUT_MS)
-    {
-        return 0U;
-    }
-    if ((st1->error != 0U) || (st2->error != 0U) || (st3->error != 0U))
-    {
-        return 0U;
-    }
-    if ((float)st1->temp > ARM_TEMP_LIMIT_C)
-    {
-        return 0U;
-    }
-    if ((float)st2->temp > ARM_TEMP_LIMIT_C)
-    {
-        return 0U;
-    }
-    if (st3->temp > ARM_TEMP_LIMIT_C)
+    if ((arm_mit_feedback_ready(st1, now) == 0U) ||
+        (arm_mit_feedback_ready(st2, now) == 0U) ||
+        (arm_robstride_feedback_ready(st3, now) == 0U))
     {
         return 0U;
     }
@@ -242,76 +266,175 @@ static uint8_t arm_feedback_ready(uint32_t now)
     return 1U;
 }
 
+/* 发送 EL05 使能并等待 pattern==2 的反馈确认；最多尝试 3 次。 */
+static uint8_t arm_enable_el05_checked(FDCAN_HandleTypeDef *hfdcan)
+{
+    uint8_t attempt;
+    uint32_t deadline;
+    uint32_t now;
+    robstride_state_t *st3;
+
+    if (hfdcan == NULL)
+    {
+        return 0U;
+    }
+
+    for (attempt = 0U; attempt < ARM_EL05_ENABLE_MAX_TRIES; attempt++)
+    {
+        if (robstride_enable(hfdcan, ARM_M3_ID) != 0U)
+        {
+            HAL_Delay(1U);
+            continue;
+        }
+
+        deadline = HAL_GetTick() + ARM_EL05_ENABLE_ACK_MS;
+        for (;;)
+        {
+            arm_refresh_feedback();
+            now = HAL_GetTick();
+            st3 = robstride_get_state(ARM_M3_ID);
+
+            if (arm_robstride_feedback_ready(st3, now) != 0U)
+            {
+                return 1U;
+            }
+            if ((int32_t)(now - deadline) >= 0)
+            {
+                break;
+            }
+            HAL_Delay(1U);
+        }
+    }
+
+    return 0U;
+}
+
+/* 根据反馈力矩判断是否连续过载；返回 1 表示需要安全停机。 */
+static uint8_t arm_torque_overload_check(void)
+{
+    mit_motor_state_t *st1 = mit_motor_get_state(ARM_M1_ID);
+    mit_motor_state_t *st2 = mit_motor_get_state(ARM_M2_ID);
+    robstride_state_t *st3 = robstride_get_state(ARM_M3_ID);
+    float torque[3];
+    float limit[3];
+    uint8_t i;
+
+    if ((st1 == NULL) || (st2 == NULL) || (st3 == NULL))
+    {
+        return 0U;
+    }
+
+    torque[0] = st1->torque;
+    torque[1] = st2->torque;
+    torque[2] = st3->torque;
+
+    limit[0] = ARM_TORQUE_LIMIT_SHOULDER;
+    limit[1] = ARM_TORQUE_LIMIT_ELBOW;
+    limit[2] = ARM_TORQUE_LIMIT_WRIST;
+
+    for (i = 0U; i < 3U; i++)
+    {
+        if (fabsf(torque[i]) > limit[i])
+        {
+            if (s_torque_over_count[i] < ARM_TORQUE_FAULT_CYCLES)
+            {
+                s_torque_over_count[i]++;
+            }
+            if (s_torque_over_count[i] >= ARM_TORQUE_FAULT_CYCLES)
+            {
+                return 1U;
+            }
+        }
+        else
+        {
+            s_torque_over_count[i] = 0U;
+        }
+    }
+
+    return 0U;
+}
 /* ============================== 电机发送 =============================== */
 
-static void arm_send_motors(float q0, float q1, float q2,
-                            float v0, float v1, float v2)
+/* 连续发送失败计数；任意一帧失败都会累计，成功后清零。 */
+static uint8_t arm_tx_failure_update(uint8_t send_failed)
+{
+    if (send_failed == 0U)
+    {
+        s_tx_fail_count = 0U;
+        return 0U;
+    }
+
+    if (s_tx_fail_count < ARM_TX_FAULT_CYCLES)
+    {
+        s_tx_fail_count++;
+    }
+
+    return (s_tx_fail_count >= ARM_TX_FAULT_CYCLES) ? 1U : 0U;
+}
+
+/*
+ * 计算前馈力矩并向三个电机发送位置、速度和增益控制帧。
+ * 返回发送失败位图：bit0=腕，bit1=肩，bit2=肘。
+ */
+static uint8_t arm_send_motors(float q0, float q1, float q2,
+                               float v0, float v1, float v2)
 {
     float motor_shoulder = arm_joint_to_motor_1(q1);
     float motor_elbow = arm_joint_to_motor_2(q2);
     float torque_shoulder = 0.0f;
     float torque_elbow = 0.0f;
     float torque_wrist_ff = 0.0f;
+    uint8_t send_failed = 0U;
 
-    arm_gravity_get(s_cur_joint[1], s_cur_joint[2], s_dt,
+    arm_gravity_get(s_cur_joint[1], s_cur_joint[2], ARM_CONTROL_DT,
                     &torque_shoulder, &torque_elbow);
     torque_wrist_ff = arm_wrist_gravity_get(s_cur_joint[0],
                                             s_cur_joint[1],
                                             s_cur_joint[2],
                                             ARM_L3_LEVEL_C,
-                                            s_dt);
+                                            ARM_CONTROL_DT);
 
     /* 先发送 EL05，避免两个 AK 帧占满 Tx FIFO。 */
-    if (HAL_FDCAN_GetTxFifoFreeLevel(s_hfdcan) != 0U)
+    if (robstride_set_control(s_hfdcan, ARM_M3_ID, torque_wrist_ff,
+                              q0, v0, arm_kp_wrist, arm_kd_wrist) != FDCAN_DRV_OK)
     {
-        robstride_set_control(s_hfdcan, ARM_M3_ID, torque_wrist_ff, q0, v0,
-                              ARM_KP_WRIST, ARM_KD_WRIST);
+        send_failed |= 0x01U;
     }
-    if (HAL_FDCAN_GetTxFifoFreeLevel(s_hfdcan) != 0U)
+    if (mit_motor_set_control(s_hfdcan, ARM_M1_ID, motor_shoulder, v1,
+                              arm_kp_shoulder, arm_kd_shoulder,
+                              torque_shoulder) != FDCAN_DRV_OK)
     {
-        mit_motor_set_control(s_hfdcan, ARM_M1_ID, motor_shoulder, v1,
-                              ARM_KP_SHOULDER, ARM_KD_SHOULDER,
-                              torque_shoulder);
+        send_failed |= 0x02U;
     }
-    if (HAL_FDCAN_GetTxFifoFreeLevel(s_hfdcan) != 0U)
+    if (mit_motor_set_control(s_hfdcan, ARM_M2_ID, motor_elbow, v2,
+                              arm_kp_elbow, arm_kd_elbow,
+                              torque_elbow) != FDCAN_DRV_OK)
     {
-        mit_motor_set_control(s_hfdcan, ARM_M2_ID, motor_elbow, v2,
-                              ARM_KP_ELBOW, ARM_KD_ELBOW,
-                              torque_elbow);
+        send_failed |= 0x04U;
     }
+
+    return send_failed;
 }
 
+/* 向三个电机发送零增益、零力矩安全帧。 */
 static void arm_send_safe_idle(void)
 {
-    if (HAL_FDCAN_GetTxFifoFreeLevel(s_hfdcan) != 0U)
-    {
-        robstride_set_control(s_hfdcan, ARM_M3_ID,
-                              0.0f, 0.0f, 0.0f, 0.0f, 0.0f);
-    }
-    if (HAL_FDCAN_GetTxFifoFreeLevel(s_hfdcan) != 0U)
-    {
-        mit_motor_set_control(s_hfdcan, ARM_M1_ID,
-                              0.0f, 0.0f, 0.0f, 0.0f, 0.0f);
-    }
-    if (HAL_FDCAN_GetTxFifoFreeLevel(s_hfdcan) != 0U)
-    {
-        mit_motor_set_control(s_hfdcan, ARM_M2_ID,
-                              0.0f, 0.0f, 0.0f, 0.0f, 0.0f);
-    }
-}
-
-static void arm_update_debug_targets(float q0, float q1, float q2)
-{
-    arm_dbg.joint[ARM_DBG_SHOULDER].target = q1;
-    arm_dbg.joint[ARM_DBG_ELBOW].target = q2;
-    arm_dbg.joint[ARM_DBG_WRIST].target = q0;
+    /* fdcan_drv_send() 内部会检查 Tx FIFO，失败会在下一次循环重试。 */
+    (void)robstride_set_control(s_hfdcan, ARM_M3_ID,
+                                0.0f, 0.0f, 0.0f, 0.0f, 0.0f);
+    (void)mit_motor_set_control(s_hfdcan, ARM_M1_ID,
+                                0.0f, 0.0f, 0.0f, 0.0f, 0.0f);
+    (void)mit_motor_set_control(s_hfdcan, ARM_M2_ID,
+                                0.0f, 0.0f, 0.0f, 0.0f, 0.0f);
 }
 
 /* ============================== 安全停机 =============================== */
 
-static void arm_fail_safe(void)
+/* 停止轨迹规划、关闭三个电机并锁存故障状态。 */
+static void arm_fail_safe(int16_t error_code)
 {
     arm_traj_stop();
+    s_tx_fail_count = 0U;
 
     if (s_hfdcan != NULL)
     {
@@ -320,59 +443,52 @@ static void arm_fail_safe(void)
         robstride_disable(s_hfdcan, ARM_M3_ID, 0U);
     }
 
-    s_fault = 1U;
     s_inited = 0U;
-    arm_dbg.last_err = -2;
+    arm_dbg.last_err = error_code;
 }
 
 /* ============================== 公开接口 =============================== */
 
+/* 初始化 FDCAN 和三个电机，等待有效反馈并建立初始保持位置。 */
 void arm_task_hardware_init(FDCAN_HandleTypeDef *hfdcan)
 {
     uint32_t deadline;
 
     s_hfdcan = hfdcan;
     s_inited = 0U;
-    s_fault = 0U;
     s_target_set = 0U;
     arm_cmd_new = 0U;
     arm_l3_level_stop();
     arm_traj_stop();
-    s_last_tick = HAL_GetTick();
+    s_torque_over_count[0] = 0U;
+    s_torque_over_count[1] = 0U;
+    s_torque_over_count[2] = 0U;
+    s_tx_fail_count = 0U;
 
     if (arm_setup_motors(hfdcan) != 0U)
     {
-        arm_fail_safe();
+        arm_fail_safe(-2);
         return;
     }
 
-    /* 先使能，但在三个位置反馈都有效前保持零增益、零力矩。 */
+    /* AK 电机只使能一次；EL05 由带反馈确认的有限重试流程使能。 */
     HAL_Delay(800U);
     mit_motor_enable(hfdcan, ARM_M1_ID);
     mit_motor_enable(hfdcan, ARM_M2_ID);
-    robstride_enable(hfdcan, ARM_M3_ID);
-    s_next_el05_enable_ms = HAL_GetTick() + ARM_EL05_ENABLE_RETRY_MS;
 
+    if (arm_enable_el05_checked(hfdcan) == 0U)
+    {
+        arm_fail_safe(-2);
+        return;
+    }
+
+    /* EL05 确认成功后，再发送安全空控制帧并等待三个电机反馈齐全。 */
     deadline = HAL_GetTick() + ARM_STARTUP_TIMEOUT_MS;
     for (;;)
     {
         uint32_t now;
 
-        if (hfdcan != NULL)
-        {
-            fdcan_drv_service(hfdcan);
-        }
         arm_send_safe_idle();
-
-        if ((int32_t)(HAL_GetTick() - s_next_el05_enable_ms) >= 0)
-        {
-            if (HAL_FDCAN_GetTxFifoFreeLevel(hfdcan) != 0U)
-            {
-                robstride_enable(hfdcan, ARM_M3_ID);
-            }
-            s_next_el05_enable_ms = HAL_GetTick() + ARM_EL05_ENABLE_RETRY_MS;
-        }
-
         arm_refresh_feedback();
         now = HAL_GetTick();
 
@@ -382,14 +498,13 @@ void arm_task_hardware_init(FDCAN_HandleTypeDef *hfdcan)
         }
         if ((int32_t)(now - deadline) >= 0)
         {
-            arm_fail_safe();
+            arm_fail_safe(-2);
             return;
         }
         HAL_Delay(1U);
     }
 
-    /* 首次有效反馈作为无运动保持目标。 */
-    arm_refresh_feedback();
+    /* 本轮反馈已经刷新，直接作为初始保持目标。 */
     s_tgt_joint[0] = s_cur_joint[0];
     s_tgt_joint[1] = s_cur_joint[1];
     s_tgt_joint[2] = s_cur_joint[2];
@@ -400,18 +515,17 @@ void arm_task_hardware_init(FDCAN_HandleTypeDef *hfdcan)
     arm_dbg.reached = 0U;
     arm_dbg.last_err = 0;
     s_target_set = 0U;
-    s_last_tick = HAL_GetTick();
-    s_fault = 0U;
     s_inited = 1U;
 }
 
+/* 求解逆运动学并启动轨迹；成功返回 0，失败返回 -1。 */
 int arm_goto(float x, float z, float yaw)
 {
     float q0;
     float q1;
     float q2;
 
-    if ((s_inited == 0U) || (s_fault != 0U))
+    if (s_inited == 0U)
     {
         arm_dbg.last_err = -2;
         return -1;
@@ -444,6 +558,7 @@ int arm_goto(float x, float z, float yaw)
     return 0;
 }
 
+/* 执行一次 2 ms 控制更新，包括反馈、安全检查、轨迹和电机输出。 */
 static void arm_control_step(void)
 {
     uint32_t now;
@@ -456,10 +571,6 @@ static void arm_control_step(void)
     float l3_max_step;
     int trajectory_done = 0;
 
-    if (s_hfdcan != NULL)
-    {
-        fdcan_drv_service(s_hfdcan);
-    }
     if (s_inited == 0U)
     {
         return;
@@ -467,26 +578,20 @@ static void arm_control_step(void)
 
     now = HAL_GetTick();
 
-    /* 周期性重发腕关节使能帧，避免 EL05 掉线后无法恢复。 */
-    if ((int32_t)(now - s_next_el05_enable_ms) >= 0)
-    {
-        if (HAL_FDCAN_GetTxFifoFreeLevel(s_hfdcan) != 0U)
-        {
-            robstride_enable(s_hfdcan, ARM_M3_ID);
-        }
-        s_next_el05_enable_ms = now + ARM_EL05_ENABLE_RETRY_MS;
-    }
-
-    /* 控制算法使用固定 2 ms 周期，避免 HAL_GetTick 的 1 ms 量化造成 dt 抖动。 */
-    s_dt = ARM_CONTROL_DT;
-    s_last_tick = now;
-
-    l3_max_step = ARM_L3_MAX_SPEED * s_dt;
+    /* 控制算法固定使用 2 ms 周期，避免 HAL_GetTick 的 1 ms 量化造成 dt 抖动。 */
+    l3_max_step = ARM_L3_MAX_SPEED * ARM_CONTROL_DT;
 
     arm_refresh_feedback();
+		//电机状态检查
     if (arm_feedback_ready(now) == 0U)
     {
-        arm_fail_safe();
+        arm_fail_safe(-2);
+        return;
+    }
+		//电机力矩过载检查
+    if (arm_torque_overload_check() != 0U)
+    {
+        arm_fail_safe(-3);
         return;
     }
 
@@ -499,7 +604,7 @@ static void arm_control_step(void)
 
     if (arm_traj_is_active() != 0)
     {
-        trajectory_done = arm_traj_update(s_dt,
+        trajectory_done = arm_traj_update(ARM_CONTROL_DT,
                                           &q0, &q1, &q2,
                                           &v0, &v1, &v2);
 
@@ -510,11 +615,16 @@ static void arm_control_step(void)
         }
 
         arm_clamp_joints(&q0, &q1, &q2);
-        arm_send_motors(q0, q1, q2, v0, v1, v2);
-        arm_update_debug_targets(q0, q1, q2);
+        if (arm_tx_failure_update(arm_send_motors(q0, q1, q2,
+                                                  v0, v1, v2)) != 0U)
+        {
+            arm_fail_safe(-4);
+            return;
+        }
 
         if (trajectory_done != 0)
         {
+            /* 五次多项式执行完成。 */
             arm_dbg.reached = 1U;
         }
         return;
@@ -544,65 +654,38 @@ static void arm_control_step(void)
         s_tgt_joint[0] = q0_hold;
     }
 
-    arm_send_motors(s_tgt_joint[0], s_tgt_joint[1], s_tgt_joint[2],
-                    0.0f, 0.0f, 0.0f);
-    arm_update_debug_targets(s_tgt_joint[0], s_tgt_joint[1], s_tgt_joint[2]);
-
-    if (s_target_set != 0U)
+    if (arm_tx_failure_update(arm_send_motors(s_tgt_joint[0],
+                                              s_tgt_joint[1],
+                                              s_tgt_joint[2],
+                                              0.0f, 0.0f, 0.0f)) != 0U)
     {
-        float err0 = fabsf(s_cur_joint[0] - s_tgt_joint[0]);
-        float err1 = fabsf(s_cur_joint[1] - s_tgt_joint[1]);
-        float err2 = fabsf(s_cur_joint[2] - s_tgt_joint[2]);
-
-        if ((err0 < ARM_POS_TOL) && (err1 < ARM_POS_TOL) && (err2 < ARM_POS_TOL))
-        {
-            arm_dbg.reached = 1U;
-        }
+        arm_fail_safe(-4);
+        return;
     }
 }
-
 
 /* ============================== RTOS 周期任务 ============================== */
 
-#define ARM_TASK_STACK_SIZE  (1024U * 4U)
-
-static osThreadId_t s_arm_task_handle = NULL;
 static volatile uint32_t s_control_tick = 0U;
 static uint32_t s_control_tick_seen = 0U;
-
-static const osThreadAttr_t s_arm_task_attributes =
-{
-    .name = "ArmControlTask",
-    .stack_size = ARM_TASK_STACK_SIZE,
-    .priority = (osPriority_t)osPriorityHigh,
-};
-
-static void arm_control_task(void *argument);
-
-void arm_task_start(void)
-{
-    s_arm_task_handle = osThreadNew(arm_control_task, NULL, &s_arm_task_attributes);
-
-    if (s_arm_task_handle == NULL)
-    {
-        Error_Handler();
-    }
-}
-
+/* 记录一次由 TIM6 产生的控制节拍。 */
 void arm_task_tick(void)
 {
     /* TIM6 按固定控制周期调用，只记录出现了一个新的控制节拍。 */
     s_control_tick++;
 }
 
-static void arm_control_task(void *argument)
+/* FreeRTOS 机械臂控制任务入口：启动 TIM6 并执行周期(2ms)控制循环。 */
+void arm_task(void *argument)
 {
+    uint32_t tick_now;
+
     (void)argument;
 
     /* 进入任务后再启动 TIM6，避免调度器启动前产生控制节拍。 */
     if (HAL_TIM_Base_Start_IT(&htim6) != HAL_OK)
     {
-        Error_Handler();
+         arm_fail_safe(-2);
     }
 
     for (;;)
@@ -610,9 +693,12 @@ static void arm_control_task(void *argument)
         /* 每 1 ms 检查一次，有新节拍时执行一次控制更新。 */
         (void)osDelay(1);
 
-        if (s_control_tick != s_control_tick_seen)
+        /* 先保存本次节拍，避免判断与赋值之间被 TIM6 中断更新。 */
+        tick_now = s_control_tick;
+
+        if (tick_now != s_control_tick_seen)
         {
-            s_control_tick_seen = s_control_tick;
+            s_control_tick_seen = tick_now;
             arm_control_step();
         }
     }

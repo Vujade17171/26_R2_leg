@@ -68,14 +68,14 @@ int8_t robstride_add(const robstride_cfg_t *cfg)
 }
 
 /* 使能（com_type 0x03）：数据区全为 0。 */
-void robstride_enable(FDCAN_HandleTypeDef *hfdcan, uint8_t id)
+uint8_t robstride_enable(FDCAN_HandleTypeDef *hfdcan, uint8_t id)
 {
     int8_t idx = robstride_find(id);
     uint8_t data[8] = {0};
     uint32_t ident;
-    if (idx < 0) { return; }
+    if (idx < 0) { return 1U; }
     ident = robstride_build_id(0x03, s_cfg[idx].master_id, id);
-    fdcan_drv_send(hfdcan, ident, FDCAN_EXTENDED_ID, data, 8);
+    return fdcan_drv_send(hfdcan, ident, FDCAN_EXTENDED_ID, data, 8);
 }
 
 /* 停止（com_type 0x04）：byte0 为 clear_error。 */
@@ -90,22 +90,10 @@ void robstride_disable(FDCAN_HandleTypeDef *hfdcan, uint8_t id, uint8_t clear_er
     fdcan_drv_send(hfdcan, ident, FDCAN_EXTENDED_ID, data, 8);
 }
 
-/* 清零（com_type 0x06）：byte0 = 1。 */
-void robstride_zero(FDCAN_HandleTypeDef *hfdcan, uint8_t id)
-{
-    int8_t idx = robstride_find(id);
-    uint8_t data[8] = {0};
-    uint32_t ident;
-    if (idx < 0) { return; }
-    data[0] = 1;
-    ident = robstride_build_id(0x06, s_cfg[idx].master_id, id);
-    fdcan_drv_send(hfdcan, ident, FDCAN_EXTENDED_ID, data, 8);
-}
-
 /* 控制命令（com_type 0x01）。 */
-void robstride_set_control(FDCAN_HandleTypeDef *hfdcan, uint8_t id,
-                           float torque, float angle,
-                           float speed, float kp, float kd)
+uint8_t robstride_set_control(FDCAN_HandleTypeDef *hfdcan, uint8_t id,
+                              float torque, float angle,
+                              float speed, float kp, float kd)
 {
     int8_t idx = robstride_find(id);
     const robstride_cfg_t *cfg;
@@ -113,7 +101,7 @@ void robstride_set_control(FDCAN_HandleTypeDef *hfdcan, uint8_t id,
     uint8_t data[8] = {0};
     uint32_t ident;
 
-    if (idx < 0) { return; }
+    if (idx < 0) { return FDCAN_DRV_ERR_PARAM; }
     cfg = &s_cfg[idx];
 
     /* 方向符号 */
@@ -148,7 +136,7 @@ void robstride_set_control(FDCAN_HandleTypeDef *hfdcan, uint8_t id,
 
     /* 力矩放在 ID 的第 23..8 位 */
     ident = robstride_build_id(0x01, (uint32_t)tq, id);
-    fdcan_drv_send(hfdcan, ident, FDCAN_EXTENDED_ID, data, 8);
+    return fdcan_drv_send(hfdcan, ident, FDCAN_EXTENDED_ID, data, 8);
 }
 
 /* 接收解析：只处理 com_type == 2（电机反馈）。 */

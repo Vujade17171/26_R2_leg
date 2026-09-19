@@ -60,10 +60,10 @@ int8_t robstride_add(const robstride_cfg_t *cfg);
 /* 根据 ID 查找电机索引；找不到返回 -1。 */
 int8_t robstride_find(uint8_t id);
 
-/* 使能（0x03）/ 停止（0x04）/ 清零（0x06）。 */
-void robstride_enable(FDCAN_HandleTypeDef *hfdcan, uint8_t id);
+/* 使能（0x03）：返回 0 表示成功写入发送 FIFO，1 表示失败。 */
+uint8_t robstride_enable(FDCAN_HandleTypeDef *hfdcan, uint8_t id);
+/* 停止（0x04）。 */
 void robstride_disable(FDCAN_HandleTypeDef *hfdcan, uint8_t id, uint8_t clear_error);
-void robstride_zero(FDCAN_HandleTypeDef *hfdcan, uint8_t id);
 
 /* 控制命令（0x01）：
  *   torque : 目标力矩，单位 Nm        -> 放在 ID 第 23..8 位
@@ -72,9 +72,9 @@ void robstride_zero(FDCAN_HandleTypeDef *hfdcan, uint8_t id);
  *   kp     : 位置增益
  *   kd     : 速度增益
  */
-void robstride_set_control(FDCAN_HandleTypeDef *hfdcan, uint8_t id,
-                           float torque, float angle,
-                           float speed, float kp, float kd);
+uint8_t robstride_set_control(FDCAN_HandleTypeDef *hfdcan, uint8_t id,
+                              float torque, float angle,
+                              float speed, float kp, float kd);
 
 /* 接收解析：只处理 com_type==2（电机反馈）。 */
 void robstride_unpack(FDCAN_HandleTypeDef *hfdcan,

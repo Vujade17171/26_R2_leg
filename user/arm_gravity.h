@@ -12,11 +12,6 @@ extern volatile float arm_gravity_elbow_dir;      /* 肘关节方向，只允许 +1/-1 */
 extern volatile float arm_gravity_gear_sh;
 extern volatile float arm_gravity_gear_el;
 
-/* 调试变量：joint 为关节侧计算力矩，motor 为最终发送给 MIT 接口的力矩。 */
-
-extern volatile float arm_gravity_tau_shoulder_motor;
-extern volatile float arm_gravity_tau_elbow_motor;
-
 /*
  * 输入当前肩关节 q1、肘关节 q2（rad）。
  * 输出最终发送给 AK80-9、AK45-10 的电机侧前馈力矩（Nm）。

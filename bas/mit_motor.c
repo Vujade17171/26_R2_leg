@@ -36,9 +36,11 @@ static float uint_to_float(uint32_t x, float x_min, float x_max, int bits)
 }
 
 /* 发送 8 字节命令（标准帧，ID 等于电机 ID） */
-static void mit_motor_send_cmd(FDCAN_HandleTypeDef *hfdcan, uint8_t id, uint8_t *data)
+static uint8_t mit_motor_send_cmd(FDCAN_HandleTypeDef *hfdcan,
+                                  uint8_t id, uint8_t *data)
 {
-    fdcan_drv_send(hfdcan, (uint32_t)id, FDCAN_STANDARD_ID, data, 8);
+    return fdcan_drv_send(hfdcan, (uint32_t)id,
+                          FDCAN_STANDARD_ID, data, 8);
 }
 
 /* 在总线上注册唯一的接收回调。 */
@@ -71,7 +73,7 @@ int8_t mit_motor_add(const mit_motor_cfg_t *cfg)
     return (int8_t)g_mit_motor_n++;
 }
 
-/* MIT 运行 / 空闲 / 清零命令。 */
+/* MIT 运行 / 空闲命令。 */
 void mit_motor_enable(FDCAN_HandleTypeDef *hfdcan, uint8_t id)
 {
     uint8_t data[8] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFC};
@@ -84,23 +86,17 @@ void mit_motor_disable(FDCAN_HandleTypeDef *hfdcan, uint8_t id)
     mit_motor_send_cmd(hfdcan, id, data);
 }
 
-void mit_motor_zero(FDCAN_HandleTypeDef *hfdcan, uint8_t id)
-{
-    uint8_t data[8] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFE};
-    mit_motor_send_cmd(hfdcan, id, data);
-}
-
 /* MIT 控制命令。参数含义见 mit_motor.h。 */
-void mit_motor_set_control(FDCAN_HandleTypeDef *hfdcan, uint8_t id,
-                           float p_des, float v_des,
-                           float kp, float kd, float t_ff)
+uint8_t mit_motor_set_control(FDCAN_HandleTypeDef *hfdcan, uint8_t id,
+                              float p_des, float v_des,
+                              float kp, float kd, float t_ff)
 {
     int8_t idx = mit_motor_find(id);
     const mit_motor_cfg_t *cfg;
     uint32_t p_int, v_int, kp_int, kd_int, t_int;
     uint8_t data[8] = {0};
 
-    if (idx < 0) { return; }
+    if (idx < 0) { return FDCAN_DRV_ERR_PARAM; }
     cfg = &s_cfg[idx];
 
     /* 应用方向符号（安装补偿） */
@@ -137,7 +133,7 @@ void mit_motor_set_control(FDCAN_HandleTypeDef *hfdcan, uint8_t id,
     data[6] = (uint8_t)(((kd_int & 0x0F) << 4) | ((t_int >> 8) & 0x0F));
     data[7] = (uint8_t)(t_int & 0xFF);
 
-    mit_motor_send_cmd(hfdcan, id, data);
+    return mit_motor_send_cmd(hfdcan, id, data);
 }
 
 /* 接收解析：只处理反馈 ID 属于已配置电机的帧。 */
@@ -166,7 +162,7 @@ void mit_motor_unpack(FDCAN_HandleTypeDef *hfdcan,
     mit_motor_state[idx].pos        = uint_to_float(p_int, cfg->p_min, cfg->p_max, 16) * (float)cfg->sign;
     mit_motor_state[idx].vel        = uint_to_float(v_int, cfg->v_min, cfg->v_max, 12) * (float)cfg->sign;
     mit_motor_state[idx].torque     = uint_to_float(t_int, cfg->t_min, cfg->t_max, 12) * (float)cfg->sign;
-    mit_motor_state[idx].temp       = (int8_t)rx_data[6] - 40;
+    mit_motor_state[idx].temp       = (int16_t)rx_data[6] - 40;
     mit_motor_state[idx].error      = rx_data[7];
     mit_motor_state[idx].last_rx_ms = HAL_GetTick();
     mit_motor_state[idx].online     = 1;

@@ -39,7 +39,7 @@ typedef struct
     float    pos;         /* 位置，单位 rad */
     float    vel;         /* 速度，单位 rad/s */
     float    torque;      /* 力矩，单位 Nm */
-    int8_t   temp;        /* 温度，单位摄氏度 */
+    int16_t  temp;        /* 温度，单位摄氏度 */
     uint8_t  error;       /* 错误码 */
     uint32_t last_rx_ms;  /* 最近一次反馈时间，单位 ms */
     uint8_t  online;      /* 在线标志 */
@@ -58,10 +58,9 @@ int8_t mit_motor_add(const mit_motor_cfg_t *cfg);
 /* 根据 ID 查找电机索引；找不到返回 -1。 */
 int8_t mit_motor_find(uint8_t id);
 
-/* MIT 运行 / 空闲 / 清零命令。 */
+/* MIT 运行 / 空闲命令。 */
 void mit_motor_enable(FDCAN_HandleTypeDef *hfdcan, uint8_t id);
 void mit_motor_disable(FDCAN_HandleTypeDef *hfdcan, uint8_t id);
-void mit_motor_zero(FDCAN_HandleTypeDef *hfdcan, uint8_t id);
 
 /* MIT 控制命令：
  *   p_des : 目标位置，单位 rad
@@ -70,9 +69,9 @@ void mit_motor_zero(FDCAN_HandleTypeDef *hfdcan, uint8_t id);
  *   kd    : 速度增益
  *   t_ff  : 前馈力矩，单位 Nm
  */
-void mit_motor_set_control(FDCAN_HandleTypeDef *hfdcan, uint8_t id,
-                           float p_des, float v_des,
-                           float kp, float kd, float t_ff);
+uint8_t mit_motor_set_control(FDCAN_HandleTypeDef *hfdcan, uint8_t id,
+                              float p_des, float v_des,
+                              float kp, float kd, float t_ff);
 
 /* 接收解析（由总线层回调调用）。只处理已配置的 MIT 电机 ID。 */
 void mit_motor_unpack(FDCAN_HandleTypeDef *hfdcan,

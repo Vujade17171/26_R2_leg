@@ -12,6 +12,7 @@
   ******************************************************************************
   */
 #include "arm_kinematics.h"
+#include "arm_math.h"
 
 #include <math.h>
 #include <stddef.h>
@@ -37,19 +38,8 @@ static uint8_t s_l3_level_active = 0U;
 
 /* ============================== 通用数学工具 ============================== */
 
-static float arm_clamp_value(float value, float min_value, float max_value)
-{
-    if (value < min_value)
-    {
-        return min_value;
-    }
-    if (value > max_value)
-    {
-        return max_value;
-    }
-    return value;
-}
 
+/* 将角度归一化到 [-π, π]，便于比较两个等效角。 */
 static float arm_wrap_pi(float angle)
 {
     while (angle > M_PI)
@@ -63,39 +53,28 @@ static float arm_wrap_pi(float angle)
     return angle;
 }
 
-static float arm_move_toward(float current, float target, float max_step)
-{
-    float delta = target - current;
-
-    if (delta > max_step)
-    {
-        delta = max_step;
-    }
-    else if (delta < -max_step)
-    {
-        delta = -max_step;
-    }
-
-    return current + delta;
-}
 
 /* ========================= 关节角 / 电机角映射 ========================= */
 
+/* 肩关节角转肩电机角：加上电机安装零点偏移。 */
 float arm_joint_to_motor_1(float shoulder_joint)
 {
-    return shoulder_joint + ARM_SHOULDER_MOTOR_OFFSET;
+    return shoulder_joint + ARM_SHOULDER_MOTOR_OFFSET;//0.3
 }
 
+/* 肘关节角转肘电机角：减去电机安装零点偏移。 */
 float arm_joint_to_motor_2(float elbow_joint)
 {
-    return elbow_joint - ARM_ELBOW_MOTOR_OFFSET;
+    return elbow_joint - ARM_ELBOW_MOTOR_OFFSET;//1.9
 }
 
+/* 肩电机角转肩关节角：反向去除安装零点偏移。 */
 float arm_motor_to_joint_1(float shoulder_motor)
 {
     return shoulder_motor - ARM_SHOULDER_MOTOR_OFFSET;
 }
 
+/* 肘电机角转肘关节角：反向去除安装零点偏移。 */
 float arm_motor_to_joint_2(float elbow_motor)
 {
     return elbow_motor + ARM_ELBOW_MOTOR_OFFSET;
@@ -103,6 +82,12 @@ float arm_motor_to_joint_2(float elbow_motor)
 
 /* ========================== 正运动学与关节限位 ========================== */
 
+/*
+ * 平面二连杆正运动学。
+ * x = L1*cos(q1) + L2*cos(q1+q2)
+ * z = L1*sin(q1) + L2*sin(q1+q2)
+ * x、z 指针允许为 NULL，此时跳过对应输出。
+ */
 void arm_forward(float shoulder_joint, float elbow_joint,
                  float *x, float *z)
 {
@@ -121,6 +106,7 @@ void arm_forward(float shoulder_joint, float elbow_joint,
     }
 }
 
+/* 检查关节编号是否有效，并判断角度是否位于该关节限位内。 */
 int arm_in_limit(float joint_angle, int joint_id)
 {
     if ((joint_id < 0) || (joint_id >= ARM_JOINT_COUNT))
@@ -132,30 +118,36 @@ int arm_in_limit(float joint_angle, int joint_id)
         && (joint_angle <= g_arm_joint_limit.q_max[joint_id]);
 }
 
+/* 将三个关节目标角分别限制到限位内；指针为 NULL 时跳过该关节。 */
 void arm_clamp_joints(float *wrist, float *shoulder, float *elbow)
 {
     if (wrist != NULL)
     {
-        *wrist = arm_clamp_value(*wrist,
+        *wrist = arm_clampf(*wrist,
                                  g_arm_joint_limit.q_min[ARM_JOINT_WRIST],
                                  g_arm_joint_limit.q_max[ARM_JOINT_WRIST]);
     }
 
     if (shoulder != NULL)
     {
-        *shoulder = arm_clamp_value(*shoulder,
+        *shoulder = arm_clampf(*shoulder,
                                     g_arm_joint_limit.q_min[ARM_JOINT_SHOULDER],
                                     g_arm_joint_limit.q_max[ARM_JOINT_SHOULDER]);
     }
 
     if (elbow != NULL)
     {
-        *elbow = arm_clamp_value(*elbow,
+        *elbow = arm_clampf(*elbow,
                                  g_arm_joint_limit.q_min[ARM_JOINT_ELBOW],
                                  g_arm_joint_limit.q_max[ARM_JOINT_ELBOW]);
     }
 }
 
+/*
+ * 判断目标点是否位于二连杆可达圆环内。
+ * 最大半径 = L1+L2，最小半径 = |L1-L2|；
+ * 可达返回 0，不可达返回 -1。
+ */
 int arm_reachable(float x, float z)
 {
     float distance_squared = x * x + z * z;
@@ -176,8 +168,12 @@ int arm_reachable(float x, float z)
 
 /* ============================== 逆运动学 =============================== */
 
-/* 求解一种肘部构型：
- * sin_sign = +1 时肘部向上，sin_sign = -1 时肘部向下。 */
+/*
+ * 求解指定肘部构型的逆运动学。
+ * sin_sign = +1：肘部向上；
+ * sin_sign = -1：肘部向下。
+ * 返回 0 表示求解成功，返回 -1 表示参数无效、不可达或超出关节限位。
+ */
 static int arm_inverse_branch(float x, float z, float yaw, float sin_sign,
                               float *wrist, float *shoulder, float *elbow)
 {
@@ -198,18 +194,22 @@ static int arm_inverse_branch(float x, float z, float yaw, float sin_sign,
         return -1;
     }
 
+    /* 用余弦定理计算肘关节 cos(q2)。 */
     distance_squared = x * x + z * z;
     cos_elbow = (distance_squared - ARM_L1 * ARM_L1 - ARM_L2 * ARM_L2)
               / (2.0f * ARM_L1 * ARM_L2);
-    cos_elbow = arm_clamp_value(cos_elbow, -1.0f, 1.0f);
+    cos_elbow = arm_clampf(cos_elbow, -1.0f, 1.0f);
 
+    /* 根据 sin_sign 选择肘部构型，并求肘关节角。 */
     sin_elbow = sin_sign * sqrtf(1.0f - cos_elbow * cos_elbow);
     elbow_angle = atan2f(sin_elbow, cos_elbow);
 
+    /* 目标点相对原点的方位角，以及肩关节角的几何补偿量。 */
     target_angle = atan2f(z, x);
     shoulder_offset = atan2f(ARM_L2 * sin_elbow,
                              ARM_L1 + ARM_L2 * cos_elbow);
 
+    /* 计算肩、肘关节角并归一化到 [-π, π]。 */
     shoulder_offset = arm_wrap_pi(target_angle - shoulder_offset);
     elbow_angle = arm_wrap_pi(elbow_angle);
 
@@ -219,12 +219,17 @@ static int arm_inverse_branch(float x, float z, float yaw, float sin_sign,
         return -1;
     }
 
+    /* 逆解先返回传入的 yaw，后续由 L3 水平约束重新计算腕关节目标。 */
     *wrist = yaw;
     *shoulder = shoulder_offset;
     *elbow = elbow_angle;
     return 0;
 }
 
+/*
+ * 求两组可能的逆解，并选择与当前肩、肘角最接近的一组。
+ * shoulder_ref、elbow_ref 为当前关节角，用于避免机械臂切换到较远构型。
+ */
 int arm_inverse_nearest(float x, float z, float yaw,
                         float shoulder_ref, float elbow_ref,
                         float *wrist, float *shoulder, float *elbow)
@@ -249,6 +254,7 @@ int arm_inverse_nearest(float x, float z, float yaw,
         return -1;
     }
 
+    /* 分别求解肘部向上和肘部向下两种构型。 */
     up_valid = arm_inverse_branch(x, z, yaw, +1.0f,
                                   &up_wrist, &up_shoulder, &up_elbow);
     down_valid = arm_inverse_branch(x, z, yaw, -1.0f,
@@ -273,7 +279,7 @@ int arm_inverse_nearest(float x, float z, float yaw,
         return 0;
     }
 
-    /* 两种构型都有效时，选择与当前姿态最接近的一组。 */
+    /* 两种构型都有效时，计算各关节误差平方和，选择代价更小的一组。 */
     up_shoulder_error = arm_wrap_pi(up_shoulder - shoulder_ref);
     up_elbow_error = arm_wrap_pi(up_elbow - elbow_ref);
     up_cost = up_shoulder_error * up_shoulder_error
@@ -302,33 +308,43 @@ int arm_inverse_nearest(float x, float z, float yaw,
 
 /* ========================== 腕关节 L3 水平约束 ========================== */
 
+/* 初始化 L3 水平约束：先关闭约束，并把当前腕关节角作为内部命令。 */
 void arm_l3_level_init(float q0_current)
 {
     s_l3_level_active = 0U;
     s_l3_q0_cmd = q0_current;
 }
 
+/* 启动 L3 水平约束，并锁存当前腕关节角作为命令初值。 */
 void arm_l3_level_start(float q0_current)
 {
     s_l3_level_active = 1U;
     s_l3_q0_cmd = q0_current;
 }
 
+/* 关闭 L3 水平约束，保留当前内部腕关节命令。 */
 void arm_l3_level_stop(void)
 {
     s_l3_level_active = 0U;
 }
 
+/* 返回 L3 水平约束是否处于激活状态。 */
 uint8_t arm_l3_level_is_active(void)
 {
     return s_l3_level_active;
 }
 
+/* 直接更新 L3 内部的腕关节命令，不改变激活状态。 */
 void arm_l3_level_set_q0_cmd(float q0)
 {
     s_l3_q0_cmd = q0;
 }
 
+/*
+ * 根据 L3 水平约束计算腕关节目标角。
+ * 水平约束关系为 q0 + q1 + q2 = ARM_L3_LEVEL_C，
+ * 因此 q0_target = ARM_L3_LEVEL_C - q1 - q2。
+ */
 float arm_l3_level_target(float shoulder_joint, float elbow_joint,
                           float q0_ref)
 {
@@ -348,12 +364,18 @@ float arm_l3_level_target(float shoulder_joint, float elbow_joint,
     return wrist_target;
 }
 
+/*
+ * 周期更新 L3 腕关节命令。
+ * max_step 限制本周期 q0 的最大变化量；
+ * wrist_vel 非 NULL 时输出腕关节速度前馈。
+ */
 float arm_l3_level_update(float shoulder_joint, float elbow_joint,
                           float shoulder_vel, float elbow_vel,
                           float max_step, float *wrist_vel)
 {
     float wrist_target;
 
+    /* 未启用水平约束时保持当前命令，速度前馈固定为 0。 */
     if (s_l3_level_active == 0U)
     {
         if (wrist_vel != NULL)
@@ -363,15 +385,20 @@ float arm_l3_level_update(float shoulder_joint, float elbow_joint,
         return s_l3_q0_cmd;
     }
 
+    /* 计算目标角，限制单周期变化量，并做关节限幅。 */
     wrist_target = arm_l3_level_target(shoulder_joint, elbow_joint,
                                        s_l3_q0_cmd);
     wrist_target = arm_move_toward(s_l3_q0_cmd, wrist_target, max_step);
     arm_clamp_joints(&wrist_target, NULL, NULL);
     s_l3_q0_cmd = wrist_target;
 
+    /*
+     * 为保持 q0+q1+q2 恒定，腕关节速度前馈取 -(q1_dot+q2_dot)，
+     * 并限制在腕关节最大速度内。
+     */
     if (wrist_vel != NULL)
     {
-        *wrist_vel = arm_clamp_value(-(shoulder_vel + elbow_vel),
+        *wrist_vel = arm_clampf(-(shoulder_vel + elbow_vel),
                                      -ARM_L3_MAX_SPEED,
                                       ARM_L3_MAX_SPEED);
     }

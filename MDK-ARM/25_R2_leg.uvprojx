@@ -869,6 +869,11 @@
               <FileType>5</FileType>
               <FilePath>..\user\arm_gravity.h</FilePath>
             </File>
+            <File>
+              <FileName>arm_math.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\user\arm_math.h</FilePath>
+            </File>
           </Files>
         </Group>
         <Group>

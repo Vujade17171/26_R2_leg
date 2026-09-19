@@ -119,7 +119,6 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-    /* 调度器启动后不会执行到这里。 */
   }
   /* USER CODE END 3 */
 }
