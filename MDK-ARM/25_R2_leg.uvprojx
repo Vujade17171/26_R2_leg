@@ -874,6 +874,16 @@
               <FileType>5</FileType>
               <FilePath>..\user\arm_math.h</FilePath>
             </File>
+            <File>
+              <FileName>arm_control.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\user\arm_control.c</FilePath>
+            </File>
+            <File>
+              <FileName>arm_control.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\user\arm_control.h</FilePath>
+            </File>
           </Files>
         </Group>
         <Group>
