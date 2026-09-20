@@ -21,6 +21,7 @@
 #include "FreeRTOS.h"
 #include "task.h"
 #include "main.h"
+#include "FreeRTOS.h"
 #include "cmsis_os2.h"
 
 /* Private includes ----------------------------------------------------------*/
@@ -36,8 +37,6 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-#define ARM_TASK_STACK_SIZE  (1024U * 4U)
-
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -47,20 +46,21 @@
 
 /* Private variables ---------------------------------------------------------*/
 /* USER CODE BEGIN Variables */
+/* USER CODE END Variables */
+/* Definitions for Arm_Task */
 osThreadId_t Arm_TaskHandle;
-
-const osThreadAttr_t Arm_Task_attributes =
-{
-    .name = "Arm_Task",
-    .stack_size = ARM_TASK_STACK_SIZE,
-    .priority = (osPriority_t)osPriorityHigh,
+const osThreadAttr_t Arm_Task_attributes = {
+  .name = "Arm_Task",
+  .stack_size = 1024 * 4,
+  .priority = (osPriority_t) osPriorityHigh,
 };
 
-/* USER CODE END Variables */
 /* Private function prototypes -----------------------------------------------*/
 /* USER CODE BEGIN FunctionPrototypes */
 
 /* USER CODE END FunctionPrototypes */
+
+void arm_task(void *argument);
 
 void MX_FREERTOS_Init(void); /* (MISRA C 2004 rule 8.1) */
 
@@ -90,9 +90,12 @@ void MX_FREERTOS_Init(void) {
   /* add queues, ... */
   /* USER CODE END RTOS_QUEUES */
 
-  /* USER CODE BEGIN RTOS_THREADS */
-  /* 创建机械臂控制任务。 */
+  /* Create the thread(s) */
+  /* creation of Arm_Task */
   Arm_TaskHandle = osThreadNew(arm_task, NULL, &Arm_Task_attributes);
+
+  /* USER CODE BEGIN RTOS_THREADS */
+  /* 检查机械臂控制任务是否创建成功。 */
   if (Arm_TaskHandle == NULL)
   {
     Error_Handler();
@@ -103,6 +106,24 @@ void MX_FREERTOS_Init(void) {
   /* add events, ... */
   /* USER CODE END RTOS_EVENTS */
 
+}
+
+/* USER CODE BEGIN Header_arm_task */
+/**
+  * @brief  Function implementing the Arm_Task thread.
+  * @param  argument: Not used
+  * @retval None
+  */
+/* USER CODE END Header_arm_task */
+__weak void arm_task(void *argument)
+{
+  /* USER CODE BEGIN arm_task */
+  /* Infinite loop */
+  for(;;)
+  {
+    osDelay(1);
+  }
+  /* USER CODE END arm_task */
 }
 
 /* Private application code --------------------------------------------------*/

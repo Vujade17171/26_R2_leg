@@ -554,13 +554,13 @@ int arm_goto(float x, float z, float yaw)
 void arm_control_step(float dt)
 {
     uint32_t now;
-    float q0 = 0.0f;
+    float q0 = 0.0f;      //目标角度
     float q1 = 0.0f;
     float q2 = 0.0f;
-    float v0 = 0.0f;
+    float v0 = 0.0f;      //目标速度
     float v1 = 0.0f;
     float v2 = 0.0f;
-    float l3_max_step;
+    float l3_max_step;    
     int trajectory_done = 0;
 
     if (s_inited == 0U)
@@ -573,7 +573,9 @@ void arm_control_step(float dt)
     /* 控制算法固定使用 2 ms 周期，避免 HAL_GetTick 的 1 ms 量化造成 dt 抖动。 */
     l3_max_step = ARM_L3_MAX_SPEED * dt;
 
-    arm_refresh_feedback();
+		//获取电机上电之后状态
+    arm_refresh_feedback();   
+		
 		//电机状态检查
     if (arm_feedback_ready(now) == 0U)
     {
