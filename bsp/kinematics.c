@@ -40,7 +40,7 @@ static const grav_cfg_t grav = {
     .dir_el  = 1.0f,     /* 肘方向 */
     .dir_wr  = -1.0f,    /* 腕方向：EL05 电机反馈角 = -关节角 */
     .gear_sh = 1.5f,     /* 肩：当前工程数值 */
-    .gear_el = 1.8f,     /* 肘：当前工程数值 */
+    .gear_el = 1.5f,     /* 肘：当前工程数值 */
     .gear_wr = 1.0f,     /* 腕：当前工程数值 */
     .max_torque_sh = 6.0f,   /* 肩力矩限幅 (N·m) */
     .max_torque_el = 5.5f,   /* 肘力矩限幅 (N·m) */
@@ -120,7 +120,7 @@ int8_t Kinematics_Inverse(const FootPosition *foot, LegJointAngles *q, int elbow
     if ((foot == 0) || (q == 0)) { return -1; }
     if ((g_link.L1 <= 0.0f) || (g_link.L2 <= 0.0f)) { return -1; }
 
-    x = foot->x;      /* 二连杆：直接取带符号 x，忽略 L3 与 y */
+    x = foot->x;      /* 二连杆：直接取带符号 x，忽略 L3 与 y */    
     z = foot->z;
 
     /* 可达性检查（距离平方） */

@@ -155,7 +155,7 @@ void leg_task(void *argument)
       tick += 1u;
       osDelayUntil(tick);
 
-			EL05_MotionControl(&el05_motors[0], joint_to_motor_3(3.141592f-(b+c)), 0.0f, 40.0f, 1.0f, d);
+	  EL05_MotionControl(&el05_motors[0], joint_to_motor_3(3.141592f-(b+c)), 0.0f, 40.0f, 1.0f, d);
 
       tick += 1u;
       osDelayUntil(tick);
