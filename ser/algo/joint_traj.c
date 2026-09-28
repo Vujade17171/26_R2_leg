@@ -3,17 +3,19 @@
  *   s(τ) = 10τ³ - 15τ⁴ + 6τ⁵，τ = t/T，详见 joint_traj.h
  *
  * 与调用方的分工：
- *   调用方（leg_task）负责：IK 求终点、传实际反馈角当起点、限速、重力补偿、CAN 下发；
+ *   调用方（ser/leg/leg_motion）负责：IK 求终点、传实际反馈角当起点、限速、
+ *                                     重力补偿、CAN 下发；
  *   本模块只负责：时间推进 + 五次多项式求值，输出本拍的位置/速度/加速度。
  *****************************************************************************/
 #include "joint_traj.h"
+
 #include <math.h>
 
 /* 峰值系数（用于估算/反推时长；s' 峰值 1.875，s'' 峰值 5.773503） */
 #define S_PEAK_DOT    1.875f
 #define S_PEAK_DDOT   5.773503f
 
-/* dt 合法性：异常大周期（卡顿/断点）钳到 50ms，习惯与 kinematics.c 重力补偿一致 */
+/* dt 合法性：异常大周期（卡顿/断点）钳到 50ms */
 #define JTRAJ_DT_MAX  0.05f
 
 /* 最短规划时长：至少 2 个控制周期，避免 T→0 时 1/T 数值爆炸 */
@@ -23,19 +25,19 @@
  * 规划：写入起点/终点/时长，状态置 RUNNING
  * 终点超限直接拒绝：钳位只改位置不改 Δ，会让终点前馈不为 0，持续顶限位
  * ------------------------------------------------------------------------- */
-uint8_t JointTraj_Plan(JointTraj *t, const LegJointAngles *q_now,
+int32_t JointTraj_Plan(JointTraj *t, const LegJointAngles *q_now,
                        const LegJointAngles *q_goal, float duration_s)
 {
-    if ((t == 0) || (q_now == 0) || (q_goal == 0)) { return JTRAJ_ERR_PARAM; }
+    if ((t == 0) || (q_now == 0) || (q_goal == 0)) { return SER_ERR_PARAM; }
     if (!(duration_s >= JTRAJ_T_MIN)) {              /* 写 !(x>=y) 同时挡住 NaN */
         t->state = JTRAJ_IDLE;
-        return JTRAJ_ERR_PARAM;
+        return SER_ERR_PARAM;
     }
 
-    if ((Kinematics_JointInLimit(q_goal->q1, 1) == 0) ||
-        (Kinematics_JointInLimit(q_goal->q2, 2) == 0)) {
+    if ((LegJointInLimit(q_goal->q1, 1) == 0) ||
+        (LegJointInLimit(q_goal->q2, 2) == 0)) {
         t->state = JTRAJ_IDLE;
-        return JTRAJ_ERR_LIMIT;
+        return SER_ERR_LIMIT;
     }
 
     t->q_start[0] = q_now->q1;
@@ -49,7 +51,7 @@ uint8_t JointTraj_Plan(JointTraj *t, const LegJointAngles *q_now,
     t->duration = duration_s;
     t->elapsed  = 0.0f;
     t->state    = JTRAJ_RUNNING;
-    return JTRAJ_OK;
+    return SER_OK;
 }
 
 /* ---------------------------------------------------------------------------
@@ -61,7 +63,7 @@ uint8_t JointTraj_Plan(JointTraj *t, const LegJointAngles *q_now,
  * ------------------------------------------------------------------------- */
 uint8_t JointTraj_Update(JointTraj *t, float dt,
                          LegJointAngles *q_des,
-                         JointTrajVec *v_des, JointTrajVec *a_des)
+                         LegJointVec *v_des, LegJointVec *a_des)
 {
     float tau, tau2, tau3, inv_T, inv_T2;
     float s, s_dot, s_ddot;

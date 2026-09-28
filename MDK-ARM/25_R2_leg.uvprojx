@@ -340,7 +340,7 @@
               <MiscControls></MiscControls>
               <Define>USE_PWR_LDO_SUPPLY,USE_HAL_DRIVER,STM32H723xx</Define>
               <Undefine></Undefine>
-              <IncludePath>../Core/Inc;../Drivers/STM32H7xx_HAL_Driver/Inc;../Drivers/STM32H7xx_HAL_Driver/Inc/Legacy;../Drivers/CMSIS/Device/ST/STM32H7xx/Include;../Drivers/CMSIS/Include;../Middlewares/Third_Party/FreeRTOS/Source/include;../Middlewares/Third_Party/FreeRTOS/Source/CMSIS_RTOS_V2;../Middlewares/Third_Party/FreeRTOS/Source/portable/RVDS/ARM_CM4F;../Drivers/CMSIS/RTOS2/Include;../AK_Driver;../Task;../Mycan;../bsp;../dwt</IncludePath>
+              <IncludePath>../Core/Inc;../Drivers/STM32H7xx_HAL_Driver/Inc;../Drivers/STM32H7xx_HAL_Driver/Inc/Legacy;../Drivers/CMSIS/Device/ST/STM32H7xx/Include;../Drivers/CMSIS/Include;../Middlewares/Third_Party/FreeRTOS/Source/include;../Middlewares/Third_Party/FreeRTOS/Source/CMSIS_RTOS_V2;../Middlewares/Third_Party/FreeRTOS/Source/portable/RVDS/ARM_CM4F;../Drivers/CMSIS/RTOS2/Include;../common/inc;../bsp;../osal;../ser/algo;../ser/dev;../ser/leg;../app</IncludePath>
             </VariousControls>
           </Cads>
           <Aads>
@@ -1436,57 +1436,17 @@
           </Files>
         </Group>
         <Group>
-          <GroupName>AK_Driver</GroupName>
+          <GroupName>common</GroupName>
           <Files>
             <File>
-              <FileName>ak_motor.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\AK_Driver\ak_motor.c</FilePath>
-            </File>
-            <File>
-              <FileName>ak_motor.h</FileName>
+              <FileName>leg_types.h</FileName>
               <FileType>5</FileType>
-              <FilePath>..\AK_Driver\ak_motor.h</FilePath>
+              <FilePath>..\common\inc\leg_types.h</FilePath>
             </File>
             <File>
-              <FileName>EL05_motor.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\AK_Driver\EL05_motor.c</FilePath>
-            </File>
-            <File>
-              <FileName>EL05_motor.h</FileName>
+              <FileName>struct_typedef.h</FileName>
               <FileType>5</FileType>
-              <FilePath>..\AK_Driver\EL05_motor.h</FilePath>
-            </File>
-          </Files>
-        </Group>
-        <Group>
-          <GroupName>Task</GroupName>
-          <Files>
-            <File>
-              <FileName>leg_task.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\Task\leg_task.c</FilePath>
-            </File>
-            <File>
-              <FileName>leg_task.h</FileName>
-              <FileType>5</FileType>
-              <FilePath>..\Task\leg_task.h</FilePath>
-            </File>
-          </Files>
-        </Group>
-        <Group>
-          <GroupName>Mycan</GroupName>
-          <Files>
-            <File>
-              <FileName>Mycan.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\Mycan\Mycan.c</FilePath>
-            </File>
-            <File>
-              <FileName>Mycan.h</FileName>
-              <FileType>5</FileType>
-              <FilePath>..\Mycan\Mycan.h</FilePath>
+              <FilePath>..\common\inc\struct_typedef.h</FilePath>
             </File>
           </Files>
         </Group>
@@ -1494,39 +1454,154 @@
           <GroupName>bsp</GroupName>
           <Files>
             <File>
-              <FileName>kinematics.c</FileName>
+              <FileName>bsp_can.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\bsp\kinematics.c</FilePath>
+              <FilePath>..\bsp\bsp_can.c</FilePath>
             </File>
             <File>
-              <FileName>kinematics.h</FileName>
+              <FileName>bsp_can.h</FileName>
               <FileType>5</FileType>
-              <FilePath>..\bsp\kinematics.h</FilePath>
+              <FilePath>..\bsp\bsp_can.h</FilePath>
             </File>
-            <File>
-              <FileName>joint_traj.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\bsp\joint_traj.c</FilePath>
-            </File>
-            <File>
-              <FileName>joint_traj.h</FileName>
-              <FileType>5</FileType>
-              <FilePath>..\bsp\joint_traj.h</FilePath>
-            </File>
-          </Files>
-        </Group>
-        <Group>
-          <GroupName>dwt</GroupName>
-          <Files>
             <File>
               <FileName>bsp_dwt.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\dwt\bsp_dwt.c</FilePath>
+              <FilePath>..\bsp\bsp_dwt.c</FilePath>
             </File>
             <File>
               <FileName>bsp_dwt.h</FileName>
               <FileType>5</FileType>
-              <FilePath>..\dwt\bsp_dwt.h</FilePath>
+              <FilePath>..\bsp\bsp_dwt.h</FilePath>
+            </File>
+          </Files>
+        </Group>
+        <Group>
+          <GroupName>osal</GroupName>
+          <Files>
+            <File>
+              <FileName>osal_time.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\osal\osal_time.c</FilePath>
+            </File>
+            <File>
+              <FileName>osal_time.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\osal\osal_time.h</FilePath>
+            </File>
+            <File>
+              <FileName>osal_task.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\osal\osal_task.c</FilePath>
+            </File>
+            <File>
+              <FileName>osal_task.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\osal\osal_task.h</FilePath>
+            </File>
+          </Files>
+        </Group>
+        <Group>
+          <GroupName>ser/algo</GroupName>
+          <Files>
+            <File>
+              <FileName>kinematics.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\ser\algo\kinematics.c</FilePath>
+            </File>
+            <File>
+              <FileName>kinematics.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\ser\algo\kinematics.h</FilePath>
+            </File>
+            <File>
+              <FileName>joint_traj.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\ser\algo\joint_traj.c</FilePath>
+            </File>
+            <File>
+              <FileName>joint_traj.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\ser\algo\joint_traj.h</FilePath>
+            </File>
+            <File>
+              <FileName>motion_alg.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\ser\algo\motion_alg.c</FilePath>
+            </File>
+            <File>
+              <FileName>motion_alg.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\ser\algo\motion_alg.h</FilePath>
+            </File>
+          </Files>
+        </Group>
+        <Group>
+          <GroupName>ser/dev</GroupName>
+          <Files>
+            <File>
+              <FileName>ak_motor.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\ser\dev\ak_motor.c</FilePath>
+            </File>
+            <File>
+              <FileName>ak_motor.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\ser\dev\ak_motor.h</FilePath>
+            </File>
+            <File>
+              <FileName>el05_motor.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\ser\dev\el05_motor.c</FilePath>
+            </File>
+            <File>
+              <FileName>el05_motor.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\ser\dev\el05_motor.h</FilePath>
+            </File>
+            <File>
+              <FileName>can_router.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\ser\dev\can_router.c</FilePath>
+            </File>
+            <File>
+              <FileName>can_router.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\ser\dev\can_router.h</FilePath>
+            </File>
+          </Files>
+        </Group>
+        <Group>
+          <GroupName>ser/leg</GroupName>
+          <Files>
+            <File>
+              <FileName>leg_motion.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\ser\leg\leg_motion.c</FilePath>
+            </File>
+            <File>
+              <FileName>leg_motion.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\ser\leg\leg_motion.h</FilePath>
+            </File>
+          </Files>
+        </Group>
+        <Group>
+          <GroupName>app</GroupName>
+          <Files>
+            <File>
+              <FileName>leg_task.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\app\leg_task.c</FilePath>
+            </File>
+            <File>
+              <FileName>leg_task.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\app\leg_task.h</FilePath>
+            </File>
+            <File>
+              <FileName>leg_config.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\app\leg_config.h</FilePath>
             </File>
           </Files>
         </Group>

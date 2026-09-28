@@ -25,7 +25,8 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-#include "Mycan.h"
+#include "bsp_can.h"    /* BSP_CAN_Init：FDCAN 过滤器 / 启动 / 接收中断 */
+#include "osal_time.h"  /* OSAL_Time_Init：DWT 时间基准（实测控制周期） */
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -96,9 +97,11 @@ int main(void)
   MX_GPIO_Init();
   MX_FDCAN1_Init();
   /* USER CODE BEGIN 2 */
-  /* FDCAN 扩展帧过滤器 + 启动 + 接收中断（放在启动 RTOS 之前） */
-  can_filter_init();
-  DWT_Init(480);   /* 参数为 CPU 频率 MHz；你的 SYSCLK = 480MHz */
+  /* FDCAN 过滤器 + 启动 + 接收中断（放在启动 RTOS 之前，属 boot 路径）
+   * 应用层只负责 CAN_Router 注册与句柄注入，不再直接配置外设 */
+  (void)BSP_CAN_Init(BSP_CAN_BUS_1);
+  /* 时间基准（DWT）：CPU 480MHz，供 OSAL_Time_Dt 实测控制周期 */
+  (void)OSAL_Time_Init(480u);
   /* USER CODE END 2 */
 
   /* Init scheduler */

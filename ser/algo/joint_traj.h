@@ -1,5 +1,9 @@
 /*****************************************************************************
- * joint_traj.h —— 关节空间五次多项式轨迹（归一化 s 曲线：0 → 1）
+ * joint_traj.h —— 关节空间五次多项式轨迹（归一化 s 曲线：0 -> 1）
+ *
+ * 分层位置：ser/algo —— 纯算法，不依赖 HAL / FreeRTOS / bsp，可 PC 单测。
+ *   依赖：common（leg_types.h）—— 不再依赖 kinematics.h，
+ *   因为限位判定已下沉到 leg_types.h（原来 joint_traj 反向依赖 kinematics）。
  *
  * 数学：τ = t/T，s(τ) = 10τ³ - 15τ⁴ + 6τ⁵
  *   s(0)=0, s(1)=1, s'(0)=s'(1)=0, s''(0)=s''(1)=0 → 起停平滑、端点零速零加速
@@ -20,30 +24,21 @@
 #define __JOINT_TRAJ_H
 
 #include <stdint.h>
-#include "kinematics.h"   /* LegJointAngles、JOINT*_MIN/MAX、JOINT_RATE_*_MAX */
+#include "leg_types.h"   /* LegJointAngles / LegJointVec / 限位宏 / SER_* */
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-/* 状态/返回码（风格对齐 ak_motor.h 的 AK_OK 系列） */
-#define JTRAJ_ERR_PARAM   0u   /* Plan：参数非法（空指针 / duration 过小）  */
-#define JTRAJ_OK          1u   /* Plan：规划成功，开始运行                  */
-#define JTRAJ_RUNNING     2u   /* Update：运行中                            */
-#define JTRAJ_DONE        3u   /* Update：已到位并保持（幂等，每拍都返回）   */
-#define JTRAJ_IDLE        4u   /* Update：无轨迹，出参不写                  */
-#define JTRAJ_ERR_LIMIT   5u   /* Plan：终点超机械限位，拒绝规划            */
+/* 轨迹状态：JointTraj.state 的取值，也是 JointTraj_Update 的返回值。
+ * 注意与"返回码"的区别：这里是状态机取值，返回值才是 SER_* 错误码。 */
+#define JTRAJ_IDLE     0u   /* 无轨迹：Update 不写出参              */
+#define JTRAJ_RUNNING  1u   /* 运行中                              */
+#define JTRAJ_DONE     2u   /* 已到位并保持（幂等，每拍都返回）      */
 
-/* 三元素向量：v_des 用 rad/s，a_des 用 rad/s²（同形状，靠用法区分） */
+/* 轨迹句柄：一个实例 = 一条腿的一段运动（无全局状态，可多实例） */
 typedef struct {
-    float q1;
-    float q2;
-    float q3;
-} JointTrajVec;
-
-/* 轨迹句柄：一个实例 = 一条腿的一段运动 */
-typedef struct {
-    uint8_t state;       /* JTRAJ_RUNNING / JTRAJ_DONE / JTRAJ_IDLE */
+    uint8_t state;       /* JTRAJ_IDLE / JTRAJ_RUNNING / JTRAJ_DONE */
     float   elapsed;     /* 已运行时间 (s)                          */
     float   duration;    /* 计划总时长 (s)                          */
     float   q_start[3];  /* 起点关节角 (rad)，0=q1, 1=q2, 2=q3      */
@@ -53,8 +48,8 @@ typedef struct {
 /* 规划一条轨迹：以 q_now 为起点、q_goal 为终点，duration_s 秒内跑完。
  *   q_now 必须是【实际反馈关节角】（否则首拍跳变）
  *   q_goal.q3 建议直接传 q_now.q3（腕不进轨迹 → Δ3=0，恒保持规划时刻的角度）
- *   返回 JTRAJ_OK 或 JTRAJ_ERR_PARAM / JTRAJ_ERR_LIMIT（被拒时状态保持 IDLE） */
-uint8_t JointTraj_Plan(JointTraj *t, const LegJointAngles *q_now,
+ *   返回 SER_OK，或 SER_ERR_PARAM / SER_ERR_LIMIT（被拒时状态回 IDLE） */
+int32_t JointTraj_Plan(JointTraj *t, const LegJointAngles *q_now,
                        const LegJointAngles *q_goal, float duration_s);
 
 /* 每拍调用一次，推进轨迹并给出本拍的目标量。
@@ -64,7 +59,7 @@ uint8_t JointTraj_Plan(JointTraj *t, const LegJointAngles *q_now,
  *   返回 JTRAJ_RUNNING / JTRAJ_DONE / JTRAJ_IDLE（IDLE 时出参未被写入） */
 uint8_t JointTraj_Update(JointTraj *t, float dt,
                          LegJointAngles *q_des,
-                         JointTrajVec *v_des, JointTrajVec *a_des);
+                         LegJointVec *v_des, LegJointVec *a_des);
 
 /* 放弃当前轨迹：状态回 IDLE（故障、急停、重新规划前调用） */
 void JointTraj_Abort(JointTraj *t);
