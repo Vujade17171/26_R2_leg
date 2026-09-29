@@ -11,7 +11,7 @@
 #include <stddef.h>
 
 /* 总线编号 -> HAL 句柄（HAL 类型只在本文件内出现） */
-static FDCAN_HandleTypeDef *const g_bus[BSP_CAN_BUS_NUM] = { &hfdcan1 };
+static FDCAN_HandleTypeDef *const g_bus[BSP_CAN_BUS_NUM] = { &hfdcan1, &hfdcan2 };
 
 /* 上行接收者（由中断读取） */
 static volatile BSP_CAN_RxHandler g_rx_handler[BSP_CAN_BUS_NUM];
@@ -114,6 +114,26 @@ static int32_t can_send(bsp_can_bus_t bus, uint32_t id, uint32_t id_type,
     return SER_OK;
 }
 
+int32_t vesc_can_send(bsp_can_bus_t bus, uint32_t id, 
+                        const uint8_t *data, uint8_t len){
+
+    FDCAN_HandleTypeDef *h;
+    FDCAN_TxHeaderTypeDef tx_header;
+    // 注意：FDCAN 的发送确认通常不需要单独的 box 变量，或者需要 FDCAN_TxEventFifoTypeDef
+    h = g_bus[bus];
+    // VESC 使用扩展帧
+    tx_header.Identifier = id;
+    tx_header.IdType = FDCAN_EXTENDED_ID; // 对应原来的 CAN_ID_EXT
+    tx_header.TxFrameType = FDCAN_DATA_FRAME; // 对应原来的 CAN_RTR_DATA
+    tx_header.DataLength = (uint8_t)len; // 对应原来的 DLC = 8
+    tx_header.FDFormat = FDCAN_CLASSIC_CAN;   // 经典 CAN 模式
+    tx_header.BitRateSwitch = FDCAN_BRS_OFF;
+
+    if (HAL_FDCAN_AddMessageToTxFifoQ(h, &tx_header, data) != HAL_OK) { return SER_ERR_BUS; }
+    return SER_OK;
+}
+
+
 int32_t BSP_CAN_SendStd(bsp_can_bus_t bus, uint32_t std_id,
                         const uint8_t *data, uint8_t len)
 {
@@ -184,3 +204,4 @@ void HAL_FDCAN_RxFifo0Callback(FDCAN_HandleTypeDef *hfdcan, uint32_t RxFifo0ITs)
         handler((bsp_can_bus_t)bus, rx.Identifier, id_type, data, len);
     }
 }
+

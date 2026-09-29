@@ -96,10 +96,12 @@ int main(void)
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
   MX_FDCAN1_Init();
+  MX_FDCAN2_Init();
   /* USER CODE BEGIN 2 */
   /* FDCAN 过滤器 + 启动 + 接收中断（放在启动 RTOS 之前，属 boot 路径）
    * 应用层只负责 CAN_Router 注册与句柄注入，不再直接配置外设 */
   (void)BSP_CAN_Init(BSP_CAN_BUS_1);
+  (void)BSP_CAN_Init(BSP_CAN_BUS_2);
   /* 时间基准（DWT）：CPU 480MHz，供 OSAL_Time_Dt 实测控制周期 */
   (void)OSAL_Time_Init(480u);
   /* USER CODE END 2 */

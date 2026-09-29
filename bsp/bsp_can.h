@@ -27,7 +27,8 @@ extern "C" {
 typedef uint8_t bsp_can_bus_t;
 
 #define BSP_CAN_BUS_1   0u
-#define BSP_CAN_BUS_NUM 1u
+#define BSP_CAN_BUS_2   1u
+#define BSP_CAN_BUS_NUM 2u
 
 /* 帧格式标记：本层自定义的抽象，【与 HAL 的 FDCAN_*_ID 数值无关】，
  * 上层只用这两个宏做区分。 */
@@ -52,6 +53,9 @@ int32_t BSP_CAN_UnregisterRx(bsp_can_bus_t bus);
 int32_t BSP_CAN_SendStd(bsp_can_bus_t bus, uint32_t std_id,
                         const uint8_t *data, uint8_t len);
 int32_t BSP_CAN_SendExt(bsp_can_bus_t bus, uint32_t ext_id,
+                        const uint8_t *data, uint8_t len);
+//vesc发送接口
+int32_t vesc_can_send(bsp_can_bus_t bus, uint32_t id, 
                         const uint8_t *data, uint8_t len);
 
 /* 收到并成功解析的帧总数（上电等待驱动板反馈时用它判断"是否已有通信"） */

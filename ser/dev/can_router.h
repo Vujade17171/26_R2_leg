@@ -21,6 +21,7 @@
 #include "bsp_can.h"
 #include "ak_motor.h"
 #include "el05_motor.h"
+#include "vesc_motor.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -28,10 +29,12 @@ extern "C" {
 
 /* 初始化：注册为 bsp_can 的接收者（应在 BSP_CAN_Init 之后调用） */
 int32_t CAN_Router_Init(bsp_can_bus_t bus);
+int32_t VESC_CAN_Router_Init(bsp_can_bus_t bus);//VESCj
 
 /* 绑定电机句柄数组（依赖注入）。绑定之前收到的帧会被丢弃，仅计数。 */
 int32_t CAN_Router_BindAk(AK_Motor *motors, uint8_t count);
 int32_t CAN_Router_BindEl05(EL05_Motor *motors, uint8_t count);
+int32_t CAN_Router_VESC(VESC_Motor *motors, uint8_t count);//VESC
 
 /* 收到的帧总数：供上层判断"驱动板是否已有通信"，
  * 这样 app 不必为了一个计数器去直接调用 bsp 层接口。 */
@@ -41,6 +44,9 @@ uint32_t CAN_Router_GetFrameCount(void);
  *   BSP_CAN_ID_STD -> AK 电机（标准帧，ID = 电机ID）
  *   BSP_CAN_ID_EXT -> EL05 电机（扩展帧私有协议） */
 void CAN_Router_OnFrame(bsp_can_bus_t bus, uint32_t id, uint32_t id_type,
+                        const uint8_t *data, uint8_t len);
+
+void VESC_CAN_Router_OnFrame(bsp_can_bus_t bus, uint32_t id, uint32_t id_type,
                         const uint8_t *data, uint8_t len);
 
 #ifdef __cplusplus

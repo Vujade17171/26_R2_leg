@@ -62,6 +62,13 @@ const osThreadAttr_t Leg_Task_attributes = {
   .stack_size = 512 * 4,
   .priority = (osPriority_t) osPriorityLow,
 };
+/* Definitions for Chassis_Task */
+osThreadId_t Chassis_TaskHandle;
+const osThreadAttr_t Chassis_Task_attributes = {
+  .name = "Chassis_Task",
+  .stack_size = 512 * 4,
+  .priority = (osPriority_t) osPriorityLow,
+};
 
 /* Private function prototypes -----------------------------------------------*/
 /* USER CODE BEGIN FunctionPrototypes */
@@ -70,6 +77,7 @@ const osThreadAttr_t Leg_Task_attributes = {
 
 void StartDefaultTask(void *argument);
 void leg_task(void *argument);
+void chassis_task(void *argument);
 
 void MX_FREERTOS_Init(void); /* (MISRA C 2004 rule 8.1) */
 
@@ -105,6 +113,9 @@ void MX_FREERTOS_Init(void) {
 
   /* creation of Leg_Task */
   Leg_TaskHandle = osThreadNew(leg_task, NULL, &Leg_Task_attributes);
+
+  /* creation of Chassis_Task */
+  Chassis_TaskHandle = osThreadNew(chassis_task, NULL, &Chassis_Task_attributes);
 
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
@@ -150,6 +161,24 @@ __weak void leg_task(void *argument)
     osDelay(1);
   }
   /* USER CODE END leg_task */
+}
+
+/* USER CODE BEGIN Header_chassis_task */
+/**
+* @brief Function implementing the Chassis_Task thread.
+* @param argument: Not used
+* @retval None
+*/
+/* USER CODE END Header_chassis_task */
+__weak void chassis_task(void *argument)
+{
+  /* USER CODE BEGIN chassis_task */
+  /* Infinite loop */
+  for(;;)
+  {
+    osDelay(1);
+  }
+  /* USER CODE END chassis_task */
 }
 
 /* Private application code --------------------------------------------------*/

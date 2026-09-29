@@ -1568,6 +1568,16 @@
               <FileType>5</FileType>
               <FilePath>..\ser\dev\can_router.h</FilePath>
             </File>
+            <File>
+              <FileName>vesc_motor.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\ser\dev\vesc_motor.c</FilePath>
+            </File>
+            <File>
+              <FileName>vesc_motor.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\ser\dev\vesc_motor.h</FilePath>
+            </File>
           </Files>
         </Group>
         <Group>
@@ -1602,6 +1612,16 @@
               <FileName>leg_config.h</FileName>
               <FileType>5</FileType>
               <FilePath>..\app\leg_config.h</FilePath>
+            </File>
+            <File>
+              <FileName>chassis_task.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\app\chassis_task.c</FilePath>
+            </File>
+            <File>
+              <FileName>chassis_task.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\app\chassis_task.h</FilePath>
             </File>
           </Files>
         </Group>
