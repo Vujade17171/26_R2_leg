@@ -43,19 +43,19 @@ void MX_FDCAN1_Init(void)
   hfdcan1.Init.Mode = FDCAN_MODE_NORMAL;
   hfdcan1.Init.AutoRetransmission = DISABLE;
   hfdcan1.Init.TransmitPause = DISABLE;
-  hfdcan1.Init.ProtocolException = DISABLE;
+  hfdcan1.Init.ProtocolException = ENABLE;
   hfdcan1.Init.NominalPrescaler = 3;
-  hfdcan1.Init.NominalSyncJumpWidth = 1;
+  hfdcan1.Init.NominalSyncJumpWidth = 10;
   hfdcan1.Init.NominalTimeSeg1 = 29;
   hfdcan1.Init.NominalTimeSeg2 = 10;
-  hfdcan1.Init.DataPrescaler = 1;
-  hfdcan1.Init.DataSyncJumpWidth = 1;
-  hfdcan1.Init.DataTimeSeg1 = 1;
-  hfdcan1.Init.DataTimeSeg2 = 1;
-  hfdcan1.Init.MessageRAMOffset = 512;
+  hfdcan1.Init.DataPrescaler = 3;
+  hfdcan1.Init.DataSyncJumpWidth = 10;
+  hfdcan1.Init.DataTimeSeg1 = 29;
+  hfdcan1.Init.DataTimeSeg2 = 10;
+  hfdcan1.Init.MessageRAMOffset = 0;
   hfdcan1.Init.StdFiltersNbr = 1;
   hfdcan1.Init.ExtFiltersNbr = 1;
-  hfdcan1.Init.RxFifo0ElmtsNbr = 32;
+  hfdcan1.Init.RxFifo0ElmtsNbr = 4;
   hfdcan1.Init.RxFifo0ElmtSize = FDCAN_DATA_BYTES_8;
   hfdcan1.Init.RxFifo1ElmtsNbr = 0;
   hfdcan1.Init.RxFifo1ElmtSize = FDCAN_DATA_BYTES_8;
@@ -93,25 +93,25 @@ void MX_FDCAN2_Init(void)
   hfdcan2.Init.TransmitPause = DISABLE;
   hfdcan2.Init.ProtocolException = DISABLE;
   hfdcan2.Init.NominalPrescaler = 3;
-  hfdcan2.Init.NominalSyncJumpWidth = 1;
+  hfdcan2.Init.NominalSyncJumpWidth = 10;
   hfdcan2.Init.NominalTimeSeg1 = 19;
   hfdcan2.Init.NominalTimeSeg2 = 20;
-  hfdcan2.Init.DataPrescaler = 1;
-  hfdcan2.Init.DataSyncJumpWidth = 1;
-  hfdcan2.Init.DataTimeSeg1 = 1;
-  hfdcan2.Init.DataTimeSeg2 = 1;
-  hfdcan2.Init.MessageRAMOffset = 512;
+  hfdcan2.Init.DataPrescaler = 3;
+  hfdcan2.Init.DataSyncJumpWidth = 10;
+  hfdcan2.Init.DataTimeSeg1 = 29;
+  hfdcan2.Init.DataTimeSeg2 = 5;
+  hfdcan2.Init.MessageRAMOffset = 100;
   hfdcan2.Init.StdFiltersNbr = 0;
-  hfdcan2.Init.ExtFiltersNbr = 0;
-  hfdcan2.Init.RxFifo0ElmtsNbr = 0;
+  hfdcan2.Init.ExtFiltersNbr = 1;
+  hfdcan2.Init.RxFifo0ElmtsNbr = 16;
   hfdcan2.Init.RxFifo0ElmtSize = FDCAN_DATA_BYTES_8;
-  hfdcan2.Init.RxFifo1ElmtsNbr = 0;
+  hfdcan2.Init.RxFifo1ElmtsNbr = 16;
   hfdcan2.Init.RxFifo1ElmtSize = FDCAN_DATA_BYTES_8;
   hfdcan2.Init.RxBuffersNbr = 0;
   hfdcan2.Init.RxBufferSize = FDCAN_DATA_BYTES_8;
   hfdcan2.Init.TxEventsNbr = 0;
   hfdcan2.Init.TxBuffersNbr = 0;
-  hfdcan2.Init.TxFifoQueueElmtsNbr = 0;
+  hfdcan2.Init.TxFifoQueueElmtsNbr = 8;
   hfdcan2.Init.TxFifoQueueMode = FDCAN_TX_FIFO_OPERATION;
   hfdcan2.Init.TxElmtSize = FDCAN_DATA_BYTES_8;
   if (HAL_FDCAN_Init(&hfdcan2) != HAL_OK)
@@ -209,6 +209,10 @@ void HAL_FDCAN_MspInit(FDCAN_HandleTypeDef* fdcanHandle)
     HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
     /* FDCAN2 interrupt Init */
+    HAL_NVIC_SetPriority(FDCAN2_IT0_IRQn, 5, 0);
+    HAL_NVIC_EnableIRQ(FDCAN2_IT0_IRQn);
+    HAL_NVIC_SetPriority(FDCAN2_IT1_IRQn, 5, 0);
+    HAL_NVIC_EnableIRQ(FDCAN2_IT1_IRQn);
     HAL_NVIC_SetPriority(FDCAN_CAL_IRQn, 5, 0);
     HAL_NVIC_EnableIRQ(FDCAN_CAL_IRQn);
   /* USER CODE BEGIN FDCAN2_MspInit 1 */
@@ -270,6 +274,8 @@ void HAL_FDCAN_MspDeInit(FDCAN_HandleTypeDef* fdcanHandle)
     HAL_GPIO_DeInit(GPIOB, GPIO_PIN_12|GPIO_PIN_13);
 
     /* FDCAN2 interrupt Deinit */
+    HAL_NVIC_DisableIRQ(FDCAN2_IT0_IRQn);
+    HAL_NVIC_DisableIRQ(FDCAN2_IT1_IRQn);
   /* USER CODE BEGIN FDCAN2:FDCAN_CAL_IRQn disable */
     /**
     * Uncomment the line below to disable the "FDCAN_CAL_IRQn" interrupt

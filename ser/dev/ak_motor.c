@@ -85,6 +85,7 @@ int32_t AK_Motor_Init(AK_Motor *m, bsp_can_bus_t bus, uint8_t motor_id,
     m->torque_nm = 0.0f;
     m->temp_c    = 0;
     m->err_code  = 0u;
+    m->rx_cnt    = 0u;
     return SER_OK;
 }
 
@@ -181,6 +182,7 @@ int32_t AK_Motor_OnCanRx(AK_Motor *m, uint32_t std_id,
     /* 手册：Temperature = T_int - 40（范围 -40~215） */
     m->temp_c    = (int16_t)data[6] - 40;
     m->err_code  = data[7];
+    m->rx_cnt   += 1u;      /* 反馈计数：app 用它判断"驱动板是否已回话" */
 
     /* 【已停用】AK45-10(ID=2) 反馈取反（启用取反时需与发送侧成对开启）：
      * if (AK_DirSign(m->id) < 0.0f) {

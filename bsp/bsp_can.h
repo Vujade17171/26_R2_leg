@@ -61,6 +61,18 @@ int32_t vesc_can_send(bsp_can_bus_t bus, uint32_t id,
 /* 收到并成功解析的帧总数（上电等待驱动板反馈时用它判断"是否已有通信"） */
 uint32_t BSP_CAN_GetRxFrameCount(bsp_can_bus_t bus);
 
+/* 总线是否处于 Bus-Off：1 = 已 Bus-Off（既发不出去也收不到）。
+ * 上电握手要连续重发使能，而驱动板没起来时没人 ACK：每发一帧 TEC 就 +8，
+ * 连续 32 帧左右会把 FDCAN 打进 Bus-Off；进去之后硬件自锁在 CCCR.INIT，
+ * 不做恢复的话后面再怎么发都没用（表现还是"上电后电机一直没反应"）。 */
+uint8_t BSP_CAN_IsBusOff(bsp_can_bus_t bus);
+
+/* Bus-Off 恢复（不在 Bus-Off 时什么都不做，可反复调用）：
+ * 置 CCCR.INIT 再清掉 —— 硬件随后等 129×11 个隐性位自动重新入网。
+ * 过滤器 / 中断使能 / 消息 RAM 配置都不会被这一步清掉。
+ * 返回 SER_OK / SER_ERR_PARAM */
+int32_t BSP_CAN_RecoverIfBusOff(bsp_can_bus_t bus);
+
 /* 最近一帧的 ID 与数据（调试观测用；data8 传 NULL 表示不要数据） */
 void BSP_CAN_GetLastRx(bsp_can_bus_t bus, uint32_t *id, uint8_t *data8);
 

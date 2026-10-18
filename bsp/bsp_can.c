@@ -118,7 +118,7 @@ int32_t vesc_can_send(bsp_can_bus_t bus, uint32_t id,
                         const uint8_t *data, uint8_t len){
 
     FDCAN_HandleTypeDef *h;
-    FDCAN_TxHeaderTypeDef tx_header;
+    FDCAN_TxHeaderTypeDef tx_header = {0};
     // 注意：FDCAN 的发送确认通常不需要单独的 box 变量，或者需要 FDCAN_TxEventFifoTypeDef
     h = g_bus[bus];
     // VESC 使用扩展帧
@@ -128,7 +128,9 @@ int32_t vesc_can_send(bsp_can_bus_t bus, uint32_t id,
     tx_header.DataLength = (uint8_t)len; // 对应原来的 DLC = 8
     tx_header.FDFormat = FDCAN_CLASSIC_CAN;   // 经典 CAN 模式
     tx_header.BitRateSwitch = FDCAN_BRS_OFF;
-
+    tx_header.ErrorStateIndicator = FDCAN_ESI_ACTIVE;
+    tx_header.TxEventFifoControl = FDCAN_NO_TX_EVENTS;
+    tx_header.MessageMarker = 0;
     if (HAL_FDCAN_AddMessageToTxFifoQ(h, &tx_header, data) != HAL_OK) { return SER_ERR_BUS; }
     return SER_OK;
 }
@@ -164,6 +166,31 @@ void BSP_CAN_GetLastRx(bsp_can_bus_t bus, uint32_t *id, uint8_t *data8)
     if (data8 != 0) {
         for (i = 0u; i < 8u; i++) { data8[i] = g_last_data[bus][i]; }
     }
+}
+
+/* ---------------------------------------------------------------------------
+ * Bus-Off 检测与恢复（供上电使能握手使用）
+ * ------------------------------------------------------------------------- */
+uint8_t BSP_CAN_IsBusOff(bsp_can_bus_t bus)
+{
+    if (bus_ok(bus) != SER_OK) { return 0u; }
+    return ((g_bus[bus]->Instance->PSR & FDCAN_PSR_BO) != 0u) ? 1u : 0u;
+}
+
+int32_t BSP_CAN_RecoverIfBusOff(bsp_can_bus_t bus)
+{
+    FDCAN_HandleTypeDef *h;
+
+    if (bus_ok(bus) != SER_OK) { return SER_ERR_PARAM; }
+    h = g_bus[bus];
+    if ((h->Instance->PSR & FDCAN_PSR_BO) == 0u) { return SER_OK; }
+
+    /* M_CAN 的 Bus-Off 恢复序列：CCCR.INIT 置 1 再清 0。
+     * HAL_FDCAN_Stop() 只置 INIT（不动过滤器 / 消息 RAM / 中断使能），
+     * HAL_FDCAN_Start() 清 INIT —— 正好是这一对。 */
+    (void)HAL_FDCAN_Stop(h);
+    (void)HAL_FDCAN_Start(h);
+    return SER_OK;
 }
 
 /* ---------------------------------------------------------------------------

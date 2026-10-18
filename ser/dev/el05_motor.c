@@ -90,6 +90,7 @@ int32_t EL05_Init(EL05_Motor *m, bsp_can_bus_t bus, uint8_t motor_id,
     m->temp_c     = 0.0f;
     m->fault      = 0u;
     m->mode_state = 0u;
+    m->rx_cnt     = 0u;
     return SER_OK;
 }
 
@@ -196,6 +197,7 @@ int32_t EL05_OnCanRx(EL05_Motor *m, uint32_t ext_id,
     m->vel_rads  = EL05_Uint_To_Float(v_u, mdl->v_min, mdl->v_max, 16u);
     m->torque_nm = EL05_Uint_To_Float(t_u, mdl->t_min, mdl->t_max, 16u);
     m->temp_c    = (float)((int16_t)temp_u) / 10.0f;   /* 温度×10 */
+    m->rx_cnt   += 1u;      /* 反馈计数：app 用它判断"驱动板是否已回话" */
     return SER_OK;
 }
 

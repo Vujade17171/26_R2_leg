@@ -20,7 +20,9 @@
 #include "main.h"
 #include "FreeRTOS.h"
 #include "cmsis_os2.h"
+#include "dma.h"
 #include "fdcan.h"
+#include "usart.h"
 #include "gpio.h"
 
 /* Private includes ----------------------------------------------------------*/
@@ -95,8 +97,10 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
+  MX_DMA_Init();
   MX_FDCAN1_Init();
   MX_FDCAN2_Init();
+  MX_USART1_UART_Init();
   /* USER CODE BEGIN 2 */
   /* FDCAN 过滤器 + 启动 + 接收中断（放在启动 RTOS 之前，属 boot 路径）
    * 应用层只负责 CAN_Router 注册与句柄注入，不再直接配置外设 */

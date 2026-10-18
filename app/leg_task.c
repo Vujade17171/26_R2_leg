@@ -27,6 +27,7 @@
 #include "ak_motor.h"
 #include "el05_motor.h"
 #include "can_router.h"
+#include "rc_receiver.h"
 
 /* leg_motion.h 已内含 kinematics / joint_traj / motion_alg：
  * app 只依赖 ser/leg 的对外接口，不直接包含 ser/algo 的内部头。 */
@@ -37,13 +38,15 @@
 AK_Motor   motors[APP_AK_NUM];              /* motors[0]=大臂(肩) motors[1]=小臂(肘) */
 EL05_Motor el05_motors[APP_EL05_NUM];       /* el05_motors[0]=腕 */
 
+extern RC_Data rc;
+
 #define AK_MOTOR_NUM    ((uint8_t)(sizeof(motors) / sizeof(motors[0])))
 #define EL05_MOTOR_NUM  ((uint8_t)(sizeof(el05_motors) / sizeof(el05_motors[0])))
 
 /* ================== 运动服务实例 ================== */
 static LegMotion g_leg;
 float X=0.2f;
-float Z=0.2f;
+float Z=0.3f;
 
 /* 连杆参数：大臂/小臂/腕部长度，单位 m */
 static const LegLinkParam s_link = { D_L1, D_L2, D_L3 };
@@ -60,8 +63,43 @@ LegJointAngles motor_angles;                     /* 反馈换算出的关节角�
 FootPosition   FK_pos;                           /* 正解得到的当前末端位置 */
 FootPosition   target_pos;                       /* 目标末端位置 x,z */
 
+/* ================== 上电使能握手观测量（Watch 用） ================== */
+volatile uint32_t dbg_fb_mask;       /* 谁回过话：bit0=AK肩 bit1=AK肘 bit2=EL05腕，7=都答了 */
+volatile uint32_t dbg_enable_sends;  /* 握手一共发了几轮使能 */
+volatile uint32_t dbg_bus1_frames;   /* 握手结束时 CAN1 收到的帧数 */
+volatile uint8_t  dbg_bus1_busoff;   /* CAN1 是否 Bus-Off（1=是） */
+
 /* ================== 内部函数 ================== */
 static void app_publish_debug(float dt);
+
+/* ============================================================================
+ * 上电使能握手用的小工具
+ * ========================================================================== */
+#define FB_MASK_AK_SHOULDER  (1u << 0)
+#define FB_MASK_AK_ELBOW     (1u << 1)
+#define FB_MASK_EL05_WRIST   (1u << 2)
+#define FB_MASK_ALL          (FB_MASK_AK_SHOULDER | FB_MASK_AK_ELBOW | FB_MASK_EL05_WRIST)
+
+/* 哪些驱动板已经真的回过反馈帧。
+ * 用各驱动自己的 rx_cnt，而不是"CAN1 上有没有帧"：必须确认 AK×2 + EL05
+ * 都答过话，否则可能只等到其中一块板的帧就以为"都好了"。 */
+static uint32_t leg_fb_mask(void)
+{
+    uint32_t m = 0u;
+
+    if (motors[0].rx_cnt != 0u)      { m |= FB_MASK_AK_SHOULDER; }
+    if (motors[1].rx_cnt != 0u)      { m |= FB_MASK_AK_ELBOW;    }
+    if (el05_motors[0].rx_cnt != 0u) { m |= FB_MASK_EL05_WRIST;  }
+    return m;
+}
+
+/* 发一遍三个电机的使能：AK = 进入运控模式(FF×7+FC)，EL05 = 通信类型3 */
+static void leg_enable_all(void)
+{
+    (void)AK_Motor_Enable(&motors[0]);
+    (void)AK_Motor_Enable(&motors[1]);
+    (void)EL05_Enable(&el05_motors[0]);
+}
 
 /* ============================================================================
  * 对外业务接口
@@ -109,7 +147,8 @@ static void app_publish_debug(float dt)
  * 任务入口（强定义，覆盖 freertos.c 中的 __weak leg_task）
  * ============================================================================ */
 void leg_task(void *argument)
-{
+{   
+    int16_t last_ch2 = 0u; 
     uint32_t dwt_cnt = 0u;
     uint32_t tick;
     float    dt;
@@ -117,6 +156,7 @@ void leg_task(void *argument)
     (void)argument;
 
     /* ---- 1. 设备初始化 ---- */
+	OSAL_Time_DelayMs(400u);
     (void)AK_Motor_Init(&motors[0], BSP_CAN_BUS_1, APP_AK_ID_SHOULDER, &AK_MODEL_AK80_9);   /* 大臂 */
     (void)AK_Motor_Init(&motors[1], BSP_CAN_BUS_1, APP_AK_ID_ELBOW,    &AK_MODEL_AK45_10);  /* 小臂 */
     (void)EL05_Init(&el05_motors[0], BSP_CAN_BUS_1, APP_EL05_ID_WRIST,
@@ -136,6 +176,36 @@ void leg_task(void *argument)
     (void)AK_Motor_Enable(&motors[1]);
     OSAL_Time_DelayMs(1u);
     (void)EL05_Enable(&el05_motors[0]);
+     
+		
+
+    /* ---- 4.1 使能握手（★ 上电"机械臂完全没反应"就出在这里）----
+     * 上面那几条只发了【一次】——驱动板还没起来就丢了，丢了不补发就永远失能。
+     * 这里先留 APP_DRIVER_BOOT_DELAY_MS 的上电时间，然后每
+     * APP_ENABLE_RETRY_INTERVAL_MS 重发一遍使能，直到 AK×2 + EL05 都回过反馈帧
+     * （上限 APP_ENABLE_RETRY_MAX 轮 ≈ 3s，超时也往下走，不卡死腿任务）。
+     * 期间处理 Bus-Off：没人 ACK 时连续重发会把 FDCAN1 打进 Bus-Off，
+     * 进去之后不恢复就再也发不出去、也收不到。 */
+    OSAL_Time_DelayMs(APP_DRIVER_BOOT_DELAY_MS);
+
+    dbg_enable_sends = 1u;                 /* 上面已经发过一轮 */
+    dbg_fb_mask      = 0u;
+    while (dbg_enable_sends < APP_ENABLE_RETRY_MAX)
+    {
+        leg_enable_all();
+
+        (void)BSP_CAN_RecoverIfBusOff(BSP_CAN_BUS_1);
+
+        OSAL_Time_DelayMs(APP_ENABLE_RETRY_INTERVAL_MS);
+
+        dbg_fb_mask = leg_fb_mask();
+        if (dbg_fb_mask == FB_MASK_ALL) { break; }   /* 三块板都回话了：握手完成 */
+
+        dbg_enable_sends++;
+    }
+
+    dbg_bus1_frames = CAN_Router_GetFrameCount(BSP_CAN_BUS_1);
+    dbg_bus1_busoff = BSP_CAN_IsBusOff(BSP_CAN_BUS_1);
 
     /* ---- 5. 等驱动板回传反馈（最多 APP_RX_WAIT_TIMEOUT_MS）----
      * 有真实反馈后再取初始姿态，否则 pos_rad 仍为 0，
@@ -143,43 +213,60 @@ void leg_task(void *argument)
     {
         uint32_t wait_ms = 0u;
 
-        while ((CAN_Router_GetFrameCount() == 0u) && (wait_ms < APP_RX_WAIT_TIMEOUT_MS)) {
+        while ((CAN_Router_GetFrameCount(BSP_CAN_BUS_1) == 0u) && (wait_ms < APP_RX_WAIT_TIMEOUT_MS)) {
             OSAL_Time_DelayMs(1u);
             wait_ms++;
         }
     }
 
     /* ---- 6. 上电初值：以"当前实际末端位置"为目标，先保持姿态（避免上电跳变） ---- */
-    (void)LegMotion_InitPose(&g_leg);
+//    (void)LegMotion_InitPose(&g_leg);
 
     /* ---- 7. 预置 DWT 计数，避免首拍算出巨大的 dt ---- */
-    OSAL_Time_ResetDt(&dwt_cnt);
-
+     OSAL_Time_ResetDt(&dwt_cnt);
+       
     tick = OSAL_Time_GetTick();
 
     for (;;)
     {
-        /* 实测控制周期：轨迹推进 / 限速 / 前馈共用同一个 dt */
-			arm_control(X,Z);
-#if (APP_DT_USE_DWT != 0)
-        dt = OSAL_Time_Dt(&dwt_cnt);
-#else
-        dt = APP_CTRL_DT_FALLBACK_S;
-#endif
-        if (dt <= 0.0f)             { dt = APP_CTRL_DT_FALLBACK_S; }  /* 异常周期：退回名义值 */
-        if (dt > APP_CTRL_DT_MAX_S) { dt = APP_CTRL_DT_MAX_S; }        /* 卡顿/断点：上限 50ms */
+        /* 实测控制周期：轨迹推进 / 限速 / 前馈共用同一个 dt */ //(rc.num-1000) / 1000.0f *0.4f +0.2f)
+			if(rc.s[2] == 1 && rc.s[0] == 0){
+                while(rc.ch[2] >7 || rc.ch[2] < -7){
+                    if(rc.ch[2]>0 && rc.ch[2] > last_ch2){
+                        X= rc.ch[2]/500.0f * 0.3f ;
+                        Z=(rc.num-1000) / 1000.0f * 0.4f +0.2f;
+                    }
+                    else if(rc.ch[2]<0 && rc.ch[2] < last_ch2){
+                        X=rc.ch[2]/500.0f * 0.3f;
+                        Z=(rc.num-1000) / 1000.0f * 0.4f +0.2f;
+                    }
+                    last_ch2 = rc.ch[2];
+										OSAL_Time_DelayMs(1u);
+                }
+			}
+		  	arm_control(X,Z);
+            dt = OSAL_Time_Dt(&dwt_cnt);
 
-        /* AK 侧：目标管理 -> 轨迹 -> 限速 -> 重力补偿 -> 下发 */
-        (void)LegMotion_Step(&g_leg, dt);
-        app_publish_debug(dt);
+			if (dt <= 0.0f)             { dt = APP_CTRL_DT_FALLBACK_S; }  /* 异常周期：退回名义值 */
+			if (dt > APP_CTRL_DT_MAX_S) { dt = APP_CTRL_DT_MAX_S; }        /* 卡顿/断点：上限 50ms */
 
-        /* 第 1 个 1ms 节拍 */
-        (void)OSAL_Task_DelayUntil(&tick, 1u);
+			/* AK 侧：目标管理 -> 轨迹 -> 限速 -> 重力补偿 -> 下发 */
+			(void)LegMotion_Step(&g_leg, dt);
+			app_publish_debug(dt);
 
-        /* 两次节拍之间：EL05 腕侧（保持原实现的时隙位置） */
-        (void)LegMotion_WristStep(&g_leg);
+			/* 第 1 个 1ms 节拍 */
+			(void)OSAL_Task_DelayUntil(&tick, 1u);
+ 
+//			/* 两次节拍之间：EL05 腕侧（保持原实现的时隙位置） */
+            if(rc.s[0] == 1){
+			    (void)LegMotion_WristStep(&g_leg, 1, (rc.num-1500.0f) / 500.0f * (PI/3.0f));
+            }else{
+                /* 手腕控制关闭 */
+                (void)LegMotion_WristStep(&g_leg, 0, 0.0f);
+            }
 
-        /* 第 2 个 1ms 节拍：回到 AK 帧，故 AK 实际周期 = 2ms */
-        (void)OSAL_Task_DelayUntil(&tick, 1u);
+			/* 第 2 个 1ms 节拍：回到 AK 帧，故 AK 实际周期 = 2ms */
+			(void)OSAL_Task_DelayUntil(&tick, 1u);
+			
     }
 }

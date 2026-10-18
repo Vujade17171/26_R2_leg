@@ -2,9 +2,46 @@
 
 const int pairs_of_poles=14;//极对数
 
-void VESC_Set_Rpm_Struct(VESC_Motor* vesc_motor,int32_t RPM)//
+void VESC_Set_Current_Brake_Struct(VESC_Motor* vesc_motor,int32_t current)
 {
-	uint8_t data[4]={0};
+	uint8_t data[8]={0};
+	uint32_t id=(vesc_motor->Basic_Parameters.ID|(  (uint32_t)CAN_PACKET_SET_CURRENT_BRAKE<<8));
+	
+	// 制动电流转换：mA × 1000 → μA（协议要求单位）
+	current*=1000;
+	data[0]=((int32_t)current>>24)&(0xFF);
+	data[1]=((int32_t)current>>16)&(0xFF);
+	data[2]=((int32_t)current>>8)&(0xFF);
+	data[3]=((int32_t)current)&(0xFF);
+
+	vesc_can_send(vesc_motor->Basic_Parameters.bus, id, data, 8);
+}
+
+void VESC_Set_Current_Handbrake_Struct(VESC_Motor* vesc_motor, int32_t current_mA)
+{
+    uint8_t data[8] = {0};  // DLC为8，所以填满8字节
+
+
+    uint32_t id = ((uint32_t)(vesc_motor->Basic_Parameters.ID & 0xFF)) |
+                      ((uint32_t)CAN_PACKET_SET_CURRENT_HANDBRAKE << 8);
+
+    // current_mA 为单位mA，根据VESC协议，乘以1000发送为单位μA
+    int32_t send_current = current_mA * 1000;
+
+    // 高位在前（大端序）
+    data[0] = (send_current >> 24) & 0xFF;
+    data[1] = (send_current >> 16) & 0xFF;
+    data[2] = (send_current >> 8) & 0xFF;
+    data[3] = send_current & 0xFF;
+
+    vesc_can_send(vesc_motor->Basic_Parameters.bus, id, data, 8);
+}
+
+
+
+int32_t VESC_Set_Rpm_Struct(VESC_Motor* vesc_motor,int32_t RPM)//
+{
+	uint8_t data[8]={0};
     uint32_t id=(vesc_motor->Basic_Parameters.ID|((uint32_t)CAN_PACKET_SET_RPM<<8));
 	//RPM
 	//Int 32
@@ -16,12 +53,12 @@ void VESC_Set_Rpm_Struct(VESC_Motor* vesc_motor,int32_t RPM)//
 	/*
 	can通信中,采用大端序,即高字节在前
 	*/
-	vesc_can_send(vesc_motor->Basic_Parameters.bus, id, data, 4);
+	return vesc_can_send(vesc_motor->Basic_Parameters.bus, id, data, 8);
 }
 
 void VESC_Set_Current_Struct(VESC_Motor* vesc_motor,int32_t current)//
 {
-	uint8_t data[4]={0};
+	uint8_t data[8]={0};
     uint32_t id=(vesc_motor->Basic_Parameters.ID|((uint32_t)CAN_PACKET_SET_CURRENT<<8));
 	//current
 	//Int 32
@@ -33,12 +70,12 @@ void VESC_Set_Current_Struct(VESC_Motor* vesc_motor,int32_t current)//
 	/*
 	can通信中,采用大端序,即高字节在前
 	*/
-	vesc_can_send(vesc_motor->Basic_Parameters.bus, id, data, 4);
+	vesc_can_send(vesc_motor->Basic_Parameters.bus, id, data, 8);
 }
 
 void VESC_Set_Pos_Struct(VESC_Motor* vesc_motor,int32_t pos)//
 {
-	uint8_t data[4]={0};
+	uint8_t data[8]={0};
     uint32_t id=(vesc_motor->Basic_Parameters.ID|((uint32_t)CAN_PACKET_SET_POS<<8));
 	//pos
 	//Int 32

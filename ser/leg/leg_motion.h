@@ -105,7 +105,7 @@ int32_t LegMotion_Step(LegMotion *lm, float dt);
 
 /* 两次节拍之间（EL05 腕侧）：按当前反馈下发腕部位置与补偿力矩。
  * 保持与旧实现相同的时隙（AK 帧 -> 1ms -> 腕帧 -> 1ms）。 */
-int32_t LegMotion_WristStep(LegMotion *lm);
+int32_t LegMotion_WristStep(LegMotion *lm , uint8_t model , float q);
 
 /* 放弃当前轨迹（急停 / 重新规划前调用） */
 void LegMotion_Abort(LegMotion *lm);

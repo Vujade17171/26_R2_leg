@@ -44,6 +44,7 @@ typedef struct AK_Motor {
     volatile float torque_nm;   /* 扭矩 N·m                      */
     volatile int16_t temp_c;    /* 电机温度 ℃（手册 -40~215）    */
     volatile uint8_t err_code;  /* 错误标志                      */
+    volatile uint32_t rx_cnt;   /* 收到的反馈帧计数（>0 才说明驱动板真的在线） */
 } AK_Motor;
 
 /* 生成自定义电机模型（按手册 5.3 参数表填写限幅） */

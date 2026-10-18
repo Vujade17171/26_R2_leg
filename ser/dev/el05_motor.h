@@ -55,6 +55,7 @@ typedef struct EL05_Motor {
     volatile float temp_c;      /* 当前温度 ℃                */
     volatile uint8_t fault;     /* 故障位 bit0~5（手册 4.1）   */
     volatile uint8_t mode_state;/* 模式状态 0复位/1标定/2运行  */
+    volatile uint32_t rx_cnt;   /* 收到的反馈帧计数（>0 才说明驱动板真的在线） */
 } EL05_Motor;
 
 /* 初始化：绑定总线编号、目标电机 CAN_ID、主机 CAN_ID 与量程模型 */

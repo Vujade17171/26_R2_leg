@@ -46,7 +46,6 @@ typedef enum
 
 typedef struct
 {	
-	//这些有点用吧，应该是的吧
 	float ERpm;								// 电速度
 	float Rpm;								// 机械速度
 	float PID_Position_Now;		// 当前PID位置
@@ -76,9 +75,11 @@ typedef struct VESC_Motor
 
 void VESC_Motor_Struct_Init(VESC_Motor* vesc_motor,bsp_can_bus_t bus,uint16_t id);
 
-void VESC_Set_Rpm_Struct(VESC_Motor* vesc_motor,int32_t RPM);
+int32_t VESC_Set_Rpm_Struct(VESC_Motor* vesc_motor,int32_t RPM);
 void VESC_Set_Current_Struct(VESC_Motor* vesc_motor,int32_t current);
 void VESC_Set_Pos_Struct(VESC_Motor* vesc_motor,int32_t pos);
+void VESC_Set_Current_Brake_Struct(VESC_Motor* vesc_motor,int32_t current);
+void VESC_Set_Current_Handbrake_Struct(VESC_Motor* vesc_motor, int32_t current_mA);
 
 uint32_t VESC_Motor_RxDispatch(VESC_Motor *motors, uint8_t count,
                         uint32_t ext_id, const uint8_t *data, uint8_t len);

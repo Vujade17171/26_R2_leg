@@ -36,9 +36,12 @@ int32_t CAN_Router_BindAk(AK_Motor *motors, uint8_t count);
 int32_t CAN_Router_BindEl05(EL05_Motor *motors, uint8_t count);
 int32_t CAN_Router_VESC(VESC_Motor *motors, uint8_t count);//VESC
 
-/* 收到的帧总数：供上层判断"驱动板是否已有通信"，
- * 这样 app 不必为了一个计数器去直接调用 bsp 层接口。 */
-uint32_t CAN_Router_GetFrameCount(void);
+/* 某条总线上收到的帧总数：供上层判断"这条总线上的驱动板是否已有通信"，
+ * 这样 app 不必为了一个计数器去直接调用 bsp 层接口。
+ * 必须传总线号：原实现内部用一个被两条总线共用的 s_bus，chassis_task
+ * 初始化 BUS_2 之后，腿任务再查这个计数读到的就是底盘总线的值
+ * —— "等 AK 反馈"会一直等错对象。 */
+uint32_t CAN_Router_GetFrameCount(bsp_can_bus_t bus);
 
 /* 接收分发（由 bsp 的中断回调调用，处于【中断上下文】，必须保持轻量）：
  *   BSP_CAN_ID_STD -> AK 电机（标准帧，ID = 电机ID）

@@ -14,17 +14,14 @@ static EL05_Motor *s_el05;
 static uint8_t s_el05_num;
 static VESC_Motor *s_vesc;
 static uint8_t s_vesc_num;
-static bsp_can_bus_t s_bus;
 
 int32_t CAN_Router_Init(bsp_can_bus_t bus)
 {
-    s_bus = bus;
     return BSP_CAN_RegisterRx(bus, CAN_Router_OnFrame);
 }
 
 int32_t VESC_CAN_Router_Init(bsp_can_bus_t bus)
 {
-    s_bus = bus;
     return BSP_CAN_RegisterRx(bus, VESC_CAN_Router_OnFrame); // VESC回调接口
 }
 
@@ -61,9 +58,9 @@ int32_t CAN_Router_VESC(VESC_Motor *motors, uint8_t count)
     return SER_OK;
 }
 
-uint32_t CAN_Router_GetFrameCount(void)
+uint32_t CAN_Router_GetFrameCount(bsp_can_bus_t bus)
 {
-    return BSP_CAN_GetRxFrameCount(s_bus);
+    return BSP_CAN_GetRxFrameCount(bus);
 }
 
 /* 中断上下文：不做打印 / 延时 / OS 调用 */

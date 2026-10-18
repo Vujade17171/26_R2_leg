@@ -146,7 +146,7 @@ static int32_t plan_to(LegMotion *lm, float x, float z, float duration_s)
     /* 逆解：失败（不可达 / 无满足限位的解）-> 放弃本次规划，调用方保持当前位姿。
      * 与旧实现"IK 失败则期望角 = 当前实际角"的语义一致。 */
     q_goal = q_now;
-    if (Kinematics_Inverse(&target, &q_goal, -1) != SER_OK) {
+    if (Kinematics_Inverse(&target, &q_goal, 1) != SER_OK) {
         return SER_ERR_LIMIT;
     }
 
@@ -213,6 +213,10 @@ static void joint_output(LegMotion *lm, const LegJointAngles *q_des,
                        lm->cfg.kp, lm->cfg.kd, tau_sh);
     (void)AK_Motor_MIT(&lm->ak[1], joint_to_motor_2(q_cmd.q2), v_des->q2,
                        lm->cfg.kp, lm->cfg.kd, tau_el);
+//    (void)AK_Motor_MIT(&lm->ak[0], joint_to_motor_1(q_cmd.q1), 0.0f,
+//                       lm->cfg.kp, lm->cfg.kd, tau_sh);
+//    (void)AK_Motor_MIT(&lm->ak[1], joint_to_motor_2(q_cmd.q2), 0.0f,
+//                       lm->cfg.kp, lm->cfg.kd, tau_el);
 }
 
 /* ---------------------------------------------------------------------------
@@ -291,14 +295,18 @@ int32_t LegMotion_Step(LegMotion *lm, float dt)
  * 腕部（EL05）下发：位置保持"末端水平"，力矩用重力补偿的腕分量
  * 与旧实现 EL05_MotionControl(joint_to_motor_3(π−(q1+q2)), 0, kp, kd, tau_wr) 一致
  * ------------------------------------------------------------------------- */
-int32_t LegMotion_WristStep(LegMotion *lm)
+int32_t LegMotion_WristStep(LegMotion *lm , uint8_t model , float q)
 {
     float pos_motor;
 
     if ((lm == 0) || (lm->el05 == 0)) { return SER_ERR_PARAM; }
     if (lm->el05_num < 1u)            { return SER_ERR_PARAM; }
-
-    pos_motor = joint_to_motor_3(LEG_PI - (lm->fb.q1 + lm->fb.q2));
+    if(model == 0){
+        pos_motor = joint_to_motor_3(LEG_PI - (lm->fb.q1 + lm->fb.q2));
+	}
+    else {
+        pos_motor = joint_to_motor_3(LEG_PI - (lm->fb.q1 + lm->fb.q2) - q);
+    }
 
     return EL05_MotionControl(&lm->el05[0], pos_motor, 0.0f,
                               lm->cfg.wrist_kp, lm->cfg.wrist_kd, lm->tau_wr);
